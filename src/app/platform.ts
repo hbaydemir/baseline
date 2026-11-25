@@ -58,3 +58,35 @@ export function newer(a: string, b: string) {
   for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
   return false;
 }
+
+// --- şablonlar ve tasarım havuzu ---
+export interface LibFile { path: string; size: number; modified: number }
+const LS = 'baseline-library';
+const local = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem(LS) ?? '{}'); } catch { return {}; } };
+export async function libList(): Promise<LibFile[]> {
+  if (desktop) return invoke<LibFile[]>('lib_list');
+  return Object.keys(local()).map(path => ({ path, size: local()[path].length, modified: 0 }));
+}
+export async function libRead(path: string): Promise<Uint8Array> {
+  if (desktop) return new Uint8Array(await invoke<ArrayBuffer>('lib_read', { path }));
+  const v = local()[path]; if (v === undefined) throw new Error('Dosya yok');
+  return v.startsWith('data:') ? Uint8Array.from(atob(v.split(',')[1]), c => c.charCodeAt(0)) : new TextEncoder().encode(v);
+}
+export async function libWrite(path: string, data: string | Uint8Array) {
+  if (desktop) return invoke<void>('lib_write', { path, data: Array.from(typeof data === 'string' ? new TextEncoder().encode(data) : data) });
+  const all = local(); all[path] = typeof data === 'string' ? data : 'data:;base64,' + btoa(String.fromCharCode(...data)); localStorage.setItem(LS, JSON.stringify(all));
+}
+export async function libDelete(path: string) {
+  if (desktop) return invoke<void>('lib_delete', { path });
+  const all = local(); delete all[path]; localStorage.setItem(LS, JSON.stringify(all));
+}
+export const libOpen = () => desktop ? invoke<void>('lib_open') : Promise.resolve();
+/** Dosya seçtirip ham baytlarını verir. */
+export function pickBytes(accept: string): Promise<{ name: string; data: Uint8Array }[]> {
+  return new Promise(res => {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.multiple = true;
+    i.onchange = async () => res(await Promise.all([...i.files ?? []].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))));
+    i.oncancel = () => res([]);
+    i.click();
+  });
+}

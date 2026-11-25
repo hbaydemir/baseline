@@ -4,7 +4,7 @@ import type { CrossSection, Manifold, ManifoldToplevel } from 'manifold-3d';
 type P2 = [number, number];
 
 /** Kenarları y şeritlerine ayırıp hızlı içeride-mi testi. */
-class Inside {
+export class Inside {
   private rows: number[][]; private y0: number; private k: number; private e: number[][] = [];
   constructor(polys: P2[][]) {
     for (const p of polys) p.forEach((a, i) => { const b = p[(i + 1) % p.length]; if (a[1] !== b[1]) this.e.push([a[0], a[1], b[0], b[1]]); });

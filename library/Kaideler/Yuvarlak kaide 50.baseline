@@ -1,0 +1,40 @@
+{
+ "format": "baseline",
+ "version": 1,
+ "params": {
+  "tolerans": 0.2
+ },
+ "nodes": [
+  {
+   "id": "cylinder1",
+   "name": "Silindir",
+   "type": "cylinder",
+   "params": {
+    "dia": 50,
+    "top": 46,
+    "h": 5,
+    "seg": 64,
+    "edge": 1,
+    "edgeStyle": "round"
+   },
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "color": "#222222",
+   "hole": false,
+   "hidden": false
+  }
+ ]
+}

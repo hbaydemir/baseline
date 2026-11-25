@@ -2,7 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import svgpath from 'svgpath';
 import type { CrossSection, ManifoldToplevel } from 'manifold-3d';
 
-type P2 = [number, number];
+import { cornerPolys, type P2 } from './corners';
 export interface Region { color: string; cs: CrossSection }
 type Style = Record<string, string>;
 const NAMED: Record<string, string> = { black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', lime: '#00ff00', blue: '#0000ff', yellow: '#ffff00', orange: '#ffa500', purple: '#800080', pink: '#ffc0cb', gray: '#808080', grey: '#808080', brown: '#a52a2a', cyan: '#00ffff', aqua: '#00ffff', magenta: '#ff00ff', navy: '#000080', gold: '#ffd700', silver: '#c0c0c0', teal: '#008080', maroon: '#800000', olive: '#808000' };
@@ -25,7 +25,7 @@ export function flatten(d: string, transform = '', tol = 0.05): { pts: P2[]; clo
   let cur: P2[] = [], x = 0, y = 0;
   const end = (closed: boolean) => { if (cur.length > 1) out.push({ pts: cur, closed }); cur = []; };
   svgpath(d).transform(transform).abs().unshort().unarc().iterate((s) => {
-    const a = s as unknown as [string, ...number[]], c = a[0], n = a.slice(1) as number[];
+    const a = s as unknown as [string, ...number[]], c = a[0].toUpperCase(), n = a.slice(1) as number[];
     if (c === 'M') { end(false); [x, y] = n; cur = [[x, y]]; return; }
     if (c === 'Z') { const s0 = cur[0]; end(true); if (s0) { [x, y] = s0; cur = [[x, y]]; } return; }
     if (!cur.length) cur = [[x, y]];
@@ -69,10 +69,10 @@ function pathOf(tag: string, a: Style): string {
   return '';
 }
 
-/** SVG -> renk başına, birbiriyle çakışmayan bölgeler (üstteki alttakini keser). width mm'ye ölçekli, ortalı. */
-export function svgRegions(wasm: ManifoldToplevel, text: string, width: number): Region[] {
+export interface SvgElement { color: string; d: string; tf: string; even: boolean; stroke: number }
+/** SVG'deki çizimler, alttan üste. Dolgu ve çizgi ayrı öğedir. */
+export function svgElements(text: string): SvgElement[] {
   if (text.length > 5_000_000) throw new Error('SVG çok büyük');
-  const { CrossSection } = wasm;
   const tree = new XMLParser({ preserveOrder: true, ignoreAttributes: false, attributeNamePrefix: '', parseAttributeValue: false, parseTagValue: false }).parse(text) as any[];
   const css: Record<string, Style> = {}, ids: Record<string, any> = {};
   const decl = (s: string): Style => Object.fromEntries(s.split(';').map(x => { const k = x.indexOf(':'); return [x.slice(0, k).trim(), x.slice(k + 1).replace('!important', '').trim()]; }).filter(x => x[0]));
@@ -86,7 +86,7 @@ export function svgRegions(wasm: ManifoldToplevel, text: string, width: number):
   });
   scan(tree);
 
-  const raw: { color: string; d: string; tf: string; even: boolean; stroke: number; join: string }[] = [];
+  const raw: SvgElement[] = [];
   const SKIP = new Set(['defs', 'clipPath', 'mask', 'symbol', 'pattern', 'style', 'title', 'metadata', 'marker', 'linearGradient', 'radialGradient', 'text', 'image']);
   const walk = (ns: any[], inh: Style, tf: string, depth: number) => ns.forEach(n => {
     const tag = tagOf(n), a: Style = n[':@'] ?? {};
@@ -105,8 +105,8 @@ export function svgRegions(wasm: ManifoldToplevel, text: string, width: number):
     if (d) {
       const cur = color(st.color ?? 'black', '#000000') ?? '#000000';
       const fill = L(st['fill-opacity'], 1) === 0 ? null : color(st.fill ?? 'black', cur), str = !st.stroke || L(st['stroke-opacity'], 1) === 0 ? null : color(st.stroke, cur);
-      if (fill && tag !== 'line') raw.push({ color: fill, d, tf: t2, even: st['fill-rule'] === 'evenodd', stroke: 0, join: '' });
-      if (str) raw.push({ color: str, d, tf: t2, even: false, stroke: L(st['stroke-width'], 1), join: '' });
+      if (fill && tag !== 'line') raw.push({ color: fill, d, tf: t2, even: st['fill-rule'] === 'evenodd', stroke: 0 });
+      if (str) raw.push({ color: str, d, tf: t2, even: false, stroke: L(st['stroke-width'], 1) });
     }
     if (Array.isArray(n[tag])) walk(n[tag], st, t2, depth + 1);
   });
@@ -114,19 +114,41 @@ export function svgRegions(wasm: ManifoldToplevel, text: string, width: number):
   if (!raw.length) throw new Error('SVG içinde çizim bulunamadı (yazılar önce yola çevrilmeli)');
   if (raw.length > 5000) throw new Error('SVG çok karmaşık');
 
+  return raw;
+}
+const strokeScale = (tf: string) => { const m = svgpath('M0 0L1 0M0 0L0 1').transform(tf).toString().match(/-?[\d.]+(?:e-?\d+)?/g)?.map(Number) ?? []; return (m.length >= 8 ? Math.sqrt(Math.abs((m[2] - m[0]) * (m[7] - m[5]) - (m[3] - m[1]) * (m[6] - m[4]))) : 1) || 1; };
+
+/** Vektör düzenleyici için: dönüşümleri uygulanmış, yalnız M L C Z içeren yollar. */
+export function plainPaths(text: string): { d: string; fill: string | null; stroke: string | null; sw: number; even: boolean }[] {
+  return svgElements(text).map(e => {
+    let x = 0, y = 0, out = '';
+    svgpath(e.d).transform(e.tf).abs().unshort().unarc().iterate(s => {
+      const a = s as unknown as [string, ...number[]], c = a[0].toUpperCase(), n = a.slice(1) as number[];
+      if (c === 'Z') { out += 'Z'; return; }
+      if (c === 'H') { x = n[0]; out += `L${x} ${y}`; return; }
+      if (c === 'V') { y = n[0]; out += `L${x} ${y}`; return; }
+      if (c === 'Q') { const [cx, cy, ex, ey] = n; out += `C${x + (cx - x) * 2 / 3} ${y + (cy - y) * 2 / 3} ${ex + (cx - ex) * 2 / 3} ${ey + (cy - ey) * 2 / 3} ${ex} ${ey}`; x = ex; y = ey; return; }
+      out += c + n.join(' '); x = n[n.length - 2]; y = n[n.length - 1];
+    });
+    return { d: out, fill: e.stroke ? null : e.color, stroke: e.stroke ? e.color : null, sw: e.stroke * (e.stroke ? strokeScale(e.tf) : 1), even: e.even };
+  });
+}
+
+/** SVG -> renk başına, birbiriyle çakışmayan bölgeler (üstteki alttakini keser). width mm'ye ölçekli, ortalı. */
+export function svgRegions(wasm: ManifoldToplevel, text: string, width: number, corner = 0, cornerStyle = 'chamfer'): Region[] {
+  const { CrossSection } = wasm, raw = svgElements(text);
   // kaba ölçü -> eğri toleransı
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const r of raw) for (const c of flatten(r.d, r.tf, 1)) for (const [x, y] of c.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   const span = Math.max(x1 - x0, y1 - y0) || 1, tol = span / 4000;
-  const layers: { color: string; cs: CrossSection }[] = [];
+  const layers: Region[] = [], shapes: Region[] = [];
   for (const r of raw) {
     const contours = flatten(r.d, r.tf, tol);
     let cs: CrossSection;
     if (!r.stroke) cs = CrossSection.ofPolygons(contours.filter(c => c.pts.length > 2).map(c => c.pts), r.even ? 'EvenOdd' : 'NonZero');
     else {
-      const m = svgpath('M0 0L1 0M0 0L0 1').transform(r.tf).toString().match(/-?[\d.]+(?:e-?\d+)?/g)?.map(Number) ?? [];
-      const sc = m.length >= 8 ? Math.sqrt(Math.abs((m[2] - m[0]) * (m[7] - m[5]) - (m[3] - m[1]) * (m[6] - m[4]))) : 1;
-      const w = r.stroke * (sc || 1) / 2, polys: P2[][] = [];
+      const sc = strokeScale(r.tf);
+      const w = r.stroke * sc / 2, polys: P2[][] = [];
       for (const c of contours) {
         const p = c.closed ? [...c.pts, c.pts[0]] : c.pts;
         p.forEach(([x, y], i) => {
@@ -140,15 +162,23 @@ export function svgRegions(wasm: ManifoldToplevel, text: string, width: number):
       cs = CrossSection.ofPolygons(polys, 'NonZero');
     }
     if (cs.isEmpty()) { cs.delete(); continue; }
+    shapes.push({ color: r.color, cs });
+  }
+  x0 = y0 = Infinity; x1 = y1 = -Infinity;
+  for (const l of shapes) { const b = l.cs.bounds(); x0 = Math.min(x0, b.min[0]); y0 = Math.min(y0, b.min[1]); x1 = Math.max(x1, b.max[0]); y1 = Math.max(y1, b.max[1]); }
+  if (!(x1 > x0)) throw new Error('SVG boş');
+  // width 0: SVG birimi mm sayılır, ortalanmaz (vektör düzenleyici ve yüzey çizimleri)
+  const k = width > 0 ? width / (x1 - x0) : 1;
+  if (width <= 0) x0 = x1 = y0 = y1 = 0;
+  for (const r of shapes) {
+    let cs = r.cs;
+    if (corner > 0) { const s1 = cs.simplify(tol / 2), p = cornerPolys(s1.toPolygons() as P2[][], corner / k, cornerStyle); cs.delete(); s1.delete(); cs = CrossSection.ofPolygons(p, 'EvenOdd'); }
     for (const l of layers) { const o = l.cs; l.cs = o.subtract(cs); o.delete(); }
     const same = layers.find(l => l.color === r.color);
     if (same) { const o = same.cs; same.cs = o.add(cs); o.delete(); cs.delete(); } else layers.push({ color: r.color, cs });
   }
   const live = layers.filter(l => !l.cs.isEmpty() || (l.cs.delete(), false));
   if (!live.length) throw new Error('SVG boş');
-  x0 = y0 = Infinity; x1 = y1 = -Infinity;
-  for (const l of live) { const b = l.cs.bounds(); x0 = Math.min(x0, b.min[0]); y0 = Math.min(y0, b.min[1]); x1 = Math.max(x1, b.max[0]); y1 = Math.max(y1, b.max[1]); }
-  const k = width / (x1 - x0);
   return live.map(l => {
     const a = l.cs.translate([-(x0 + x1) / 2, -(y0 + y1) / 2]), b = a.scale([k, -k]), c = b.simplify(Math.max(1e-4, k * tol / 2));
     l.cs.delete(); a.delete(); b.delete(); return { color: l.color, cs: c };

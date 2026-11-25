@@ -1,11 +1,15 @@
 import { expect, test } from 'vitest';
 import { unzipSync, strFromU8 } from 'fflate';
-import { existsSync } from 'node:fs';
 import { apply, newDoc, parseDoc, type Command } from '../src/core/doc';
 import { evalExpr, resolveParams } from '../src/core/expr';
-import { builtBounds, world } from '../src/core/kernel';
+import { builtBounds, triColor, world } from '../src/core/kernel';
 import { to3mf, toObj, toStl } from '../src/core/export';
+import { SHAPES } from '../src/core/shapes';
+import { importModel, repair } from '../src/core/mesh';
+import { TEMPLATES, templateDoc } from '../src/core/templates';
+import { analyze } from '../src/core/guide';
 import { kernel } from '../tools/node';
+const TWO = '<svg viewBox="0 0 100 100"><path fill="#e5484d" d="M50 90 C-20 45 15 0 50 30 C85 0 120 45 50 90Z"/><circle cx="33" cy="38" r="9" fill="#ffffff"/></svg>';
 
 const k = await kernel();
 const make = (cmds: Command[]) => { const { doc } = apply(newDoc(), cmds, k.bounds); return { doc, built: k.build(doc) }; };
@@ -30,12 +34,12 @@ test('parametre değişince model değişir, geçersizi reddedilir', () => {
   expect(() => apply(a.doc, [{ op: 'update', id: 'b', params: { yok: 1 } }])).toThrow('bilinmeyen parametre');
 });
 test('her şekil su geçirmez ve pozitif hacimli', () => {
-  const { built } = make(['box', 'cylinder', 'sphere', 'tube', 'gear', 'text', 'svg', 'balloonText', 'balloonSvg'].map(type => ({ op: 'add', type }) as Command));
+  const { built } = make(Object.keys(SHAPES).filter(t => t !== 'mesh').map(type => ({ op: 'add', type }) as Command));
   for (const b of built) { expect(b.error, b.id).toBeUndefined(); expect(b.volume).toBeGreaterThan(0); for (const p of b.parts) expect(watertight(p.indices), b.id).toBe(true); }
 }, 30000);
 test('dairesel balon yarım küredir', () => {
   const svg = '<svg><circle cx="5" cy="5" r="5" fill="red"/></svg>';
-  const { built } = make([{ op: 'add', type: 'balloonSvg', params: { svg, width: 20, height: 10, base: 0.2, detail: 120 } }]);
+  const { built } = make([{ op: 'add', type: 'svg', params: { svg, width: 20 }, effects: [{ type: 'balloon', params: { height: 10, base: 0.2, detail: 120 } }] }]);
   const want = 2 / 3 * Math.PI * 1000 + Math.PI * 100 * 0.2;
   expect(Math.abs(built[0].volume / want - 1)).toBeLessThan(0.01);
 });
@@ -69,7 +73,7 @@ test('tek hata tüm komutları geri alır; bozuk dosya reddedilir', () => {
   expect(() => parseDoc('{"format":"x"}')).toThrow();
 });
 test('dışa aktarma', async () => {
-  const { built } = make([{ op: 'add', type: 'balloonSvg', name: 'Ş<&"' }, { op: 'add', type: 'box', hole: true }]);
+  const { built } = make([{ op: 'add', type: 'svg', name: 'Ş<&"', params: { svg: TWO }, effects: [{ type: 'balloon', params: {} }] }, { op: 'add', type: 'box', hole: true }]);
   const z = unzipSync(await to3mf(built)), m = strFromU8(z['3D/3dmodel.model']);
   expect(m.match(/<mesh>/g)).toHaveLength(2); expect(m).not.toContain('NaN'); expect(m).toContain('displaycolor="#E5484DFF"');
   expect(toStl(built, 'x').map(f => f.name)).toEqual(['x_e5484d.stl', 'x_ffffff.stl']);
@@ -82,4 +86,66 @@ test('aynalanan nesne dışa dönük kalır', () => {
   const p = world(built[0])[0]; let v = 0;
   for (let i = 0; i < p.indices.length; i += 3) { const [a, b, c] = [0, 1, 2].map(q => p.positions.subarray(p.indices[i + q] * 3, p.indices[i + q] * 3 + 3)); v += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]); }
   expect(v / 6).toBeCloseTo(8000, 0);
+});
+
+const vol = (cmds: Command[]) => { const b = make(cmds).built[0]; expect(b.error).toBeUndefined(); for (const p of b.parts) expect(watertight(p.indices)).toBe(true); return b.volume; };
+test('efektler', () => {
+  const sq = { op: 'add', type: 'polygon', params: { sides: 4, dia: 20 * Math.SQRT2, h: 10 } } as const;
+  expect(vol([sq])).toBeCloseTo(4000, 0);
+  // kare prizma üst pahı: kesik piramit hacmi
+  expect(vol([{ ...sq, effects: [{ type: 'bevel', params: { top: 2, bottom: 0 } }] }])).toBeCloseTo(3200 + 2 / 3 * (400 + 256 + Math.sqrt(400 * 256)), 0);
+  expect(vol([{ ...sq, params: { ...sq.params, corner: 2 } }])).toBeCloseTo(4000 - 4 * 2 * 10, 0);
+  expect(vol([{ ...sq, params: { ...sq.params, corner: 2, cornerStyle: 'round' } }])).toBeCloseTo(4000 - (4 - Math.PI) * 4 * 10, 0);
+  for (const [type, params] of [['twist', { angle: 90 }], ['taper', { top: 50 }], ['bend', { angle: 60 }], ['wave', {}], ['simplify', {}], ['balloon', {}], ['bevel', { top: 3, bottom: 2, style: 'round' }]] as const) expect(vol([{ ...sq, effects: [{ type, params: params as any }] }]), type).toBeGreaterThan(500);
+  expect(vol([{ ...sq, effects: [{ type: 'cut', params: { at: 25 } }] }])).toBeCloseTo(1000, 0);
+  expect(vol([{ op: 'add', type: 'text', effects: [{ type: 'bevel', params: { top: 0.6, bottom: 0.4 } }] }])).toBeGreaterThan(100);
+  expect(vol([{ op: 'add', type: 'box', params: { edge: 2 } }])).toBeLessThan(8000);
+  expect(() => make([{ op: 'add', type: 'box', effects: [{ type: 'bevel', params: {} }] }])).toThrow();
+});
+test('menteşe ve tolerans testi parçaları birbirine değmez', () => {
+  for (const type of ['hinge', 'tolTest', 'rail', 'gearPair', 'boxLid']) {
+    const b = make([{ op: 'add', type, ...(type === 'rail' || type === 'boxLid' ? { params: { layout: 'together' } } : {}) }]).built[0];
+    const ms = b.parts.map(p => new k.wasm.Manifold(new k.wasm.Mesh({ numProp: 3, vertProperties: p.positions, triVerts: p.indices })));
+    for (let i = 0; i < ms.length; i++) for (let j = 0; j < i; j++) expect(ms[i].intersect(ms[j]).volume(), type).toBeLessThan(0.01);
+    if (type === 'hinge' || type === 'tolTest') expect(ms.map(m => m.decompose().length), type).toEqual(ms.map(() => 1));
+  }
+});
+test('eski balon belgesi açılır', () => {
+  const d = parseDoc(JSON.stringify({ format: 'baseline', version: 1, params: {}, nodes: [{ id: 'a', name: 'a', type: 'balloonText', params: { text: 'A', size: 20, height: 5, base: 1, detail: 60, style: 'flat' }, pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], color: '#ff0000', hole: false, hidden: false }] }));
+  expect(d.nodes[0].type).toBe('text'); expect(k.build(d)[0].volume).toBeGreaterThan(0);
+});
+test('STL/OBJ/3MF içe aktarma, renk ve boyama gidiş dönüş', async () => {
+  const { built } = make([{ op: 'add', type: 'box', color: '#ff0000', paint: [{ pts: [[0, 0, 20]], n: [0, 0, 1], r: 0, color: '#00ff00' }, { pts: [[10, 0, 10]], n: [1, 0, 0], r: 3, color: '#0000ff' }] }]);
+  const p = built[0].parts[0]; expect(watertight(p.indices)).toBe(true);
+  const area = (q: typeof p, c: string) => { let s = 0; for (let t = 0; t < q.indices.length; t += 3) if (triColor(q, t / 3) === c) { const v = [0, 1, 2].map(i => [0, 1, 2].map(x => q.positions[q.indices[t + i] * 3 + x])), a = [0, 1, 2].map(i => v[1][i] - v[0][i]), b = [0, 1, 2].map(i => v[2][i] - v[0][i]); s += Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]) / 2; } return s; };
+  expect(area(p, '#00ff00')).toBeCloseTo(400, 1); expect(Math.abs(area(p, '#0000ff') - Math.PI * 9)).toBeLessThan(5);
+  const files: [string, Uint8Array][] = [['a.3mf', await to3mf(built)], ['a.stl', toStl(built, 'a')[0].data], ['a.obj', toObj(built, 'a')[0].data]];
+  for (const [name, data] of files) {
+    const r = importModel(k.wasm, name, data), b = make([...r.cmds.assets.map(a => ({ op: 'asset', ...a }) as Command), ...r.cmds.nodes.map(n => ({ op: 'add', type: 'mesh', pos: n.pos, params: { asset: n.asset } }) as Command), { op: 'add', type: 'box', id: 'h', hole: true, params: { w: 4, d: 4, h: 50 } }, { op: 'group', ids: ['mesh1', 'h'], mode: 'fused' }]).built[0];
+    expect(b.error).toBeUndefined(); expect(b.volume, name).toBeCloseTo(8000 - 320, 0);
+    if (name !== 'a.stl') { expect(area(b.parts[0], '#00ff00'), name).toBeCloseTo(400 - 16, 0); expect(b.parts[0].color).toBe('#ff0000'); }
+  }
+});
+test('onarma: açık, ters ve bozuk ağ', () => {
+  const b = make([{ op: 'add', type: 'sphere' }]).built[0].parts[0], ix = [...b.indices];
+  ix.splice(30, 12); for (let i = 0; i < 60; i += 3) [ix[i], ix[i + 1]] = [ix[i + 1], ix[i]]; ix.push(ix[0], ix[1], ix[2], 5, 5, 6);
+  const r = repair(k.wasm, { colors: ['#ffffff'], positions: b.positions, indices: new Uint32Array(ix) });
+  expect(r.report.ok).toBe(true); expect(r.report.filled).toBeGreaterThan(0); expect(r.report.flipped).toBeGreaterThan(0); expect(watertight(r.part.indices)).toBe(true);
+  expect(() => importModel(k.wasm, 'x.stl', new Uint8Array(10))).toThrow();
+});
+test('belge ekleme parametre çakışmasını ayırır', () => {
+  const a = make([{ op: 'setParam', name: 'en', value: 10 }, { op: 'add', type: 'box', id: 'b', params: { w: '=en' } }]).doc;
+  const b = make([{ op: 'setParam', name: 'en', value: 30 }, { op: 'add', type: 'box', id: 'b', params: { w: '=en' } }]).doc;
+  const m = apply(a, [{ op: 'insert', doc: b, pos: [50, 0, 0] }]).doc, r = k.build(m).map(builtBounds);
+  expect(r.map(x => Math.round(x.max[0] - x.min[0]))).toEqual([10, 30]);
+});
+test('hazır şablonlar hatasız; asistan analizi', () => {
+  for (const t of TEMPLATES) { const b = k.build(templateDoc(t)); for (const x of b) expect(x.error, t.id).toBeUndefined(); }
+  const a = analyze(make([{ op: 'add', type: 'sphere', params: { dia: 30 } }, { op: 'add', type: 'box', pos: [40, 0, 10] }]).built)!;
+  expect(a.floating).toBe(1); expect(a.overhang).toBeGreaterThan(100); expect(a.findings.some(f => f.text.includes('destek'))).toBe(true);
+});
+test('yazı yolu yalnız M L C Z içerir', () => {
+  const d = k.textPath('Ağış 8', 10); expect(d).not.toMatch(/[QqHhVvAaSsTt]|NaN/); expect(d).toMatch(/C/);
+  for (const s of [4, 7, 12.5]) expect(k.textPath('BASE Ağ', s)).not.toMatch(/NaN/);
+  expect(k.build(apply(newDoc(), [{ op: 'add', type: 'text', params: { text: 'BASE', size: 4 } }]).doc)[0].volume).toBeGreaterThan(30);
 });

@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { bambuProject, type ReadProfile } from './bambu';
-import { world, type Built, type Part } from './kernel';
+import { partColors, triColor, world, type Built, type Part } from './kernel';
+import { paintCode } from './mesh';
 
 export interface OutFile { name: string; data: Uint8Array }
 export interface Printer { id: string; label: string; bed: [number, number]; machine?: string }
@@ -23,7 +24,7 @@ export function solids(built: Built[]): { b: Built; parts: Part[] }[] {
 }
 
 export async function to3mf(built: Built[], printer = PRINTERS[0], read?: ReadProfile): Promise<Uint8Array> {
-  const objs = solids(built), colors = [...new Set(objs.flatMap(o => o.parts.map(p => p.color)))];
+  const objs = solids(built), colors = [...new Set(objs.flatMap(o => o.parts.flatMap(partColors)))];
   if (printer.machine && !read) throw new Error('Yazıcı profili için Bambu Studio kurulu olmalı');
   const project = printer.machine ? await bambuProject(read!, printer.machine, colors) : null;
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity];
@@ -36,7 +37,7 @@ export async function to3mf(built: Built[], printer = PRINTERS[0], read?: ReadPr
       const me = id++, c = colors.indexOf(p.color); ids.push(me);
       const v: string[] = [], t: string[] = [];
       for (let i = 0; i < p.positions.length; i += 3) v.push(`<vertex x="${f(p.positions[i])}" y="${f(p.positions[i + 1])}" z="${f(p.positions[i + 2])}"/>`);
-      for (let i = 0; i < p.indices.length; i += 3) t.push(`<triangle v1="${p.indices[i]}" v2="${p.indices[i + 1]}" v3="${p.indices[i + 2]}"/>`);
+      for (let i = 0; i < p.indices.length; i += 3) { const k = p.paint?.ix[i / 3] ? colors.indexOf(triColor(p, i / 3)) : -1; t.push(`<triangle v1="${p.indices[i]}" v2="${p.indices[i + 1]}" v3="${p.indices[i + 2]}"${k >= 0 ? ` pid="1" p1="${k}" p2="${k}" p3="${k}" paint_color="${paintCode(k + 1)}"` : ''}/>`); }
       res += `<object id="${me}" type="model" pid="1" pindex="${c}" name="${xml(b.name)}"><mesh><vertices>${v.join('')}</vertices><triangles>${t.join('')}</triangles></mesh></object>\n`;
     }
     const parent = id++;
@@ -81,9 +82,9 @@ export function toStl(built: Built[], name: string): OutFile[] {
 export function toObj(built: Built[], name: string): OutFile[] {
   const out = [`mtllib ${name.replace(/\s/g, '_')}.mtl`], colors = new Set<string>(); let base = 1;
   for (const { b, parts } of solids(built)) parts.forEach((p, i) => {
-    colors.add(p.color); out.push(`o ${b.id}_${i}`, `usemtl c${p.color.slice(1)}`);
+    partColors(p).forEach(c => colors.add(c)); out.push(`o ${b.id}_${i}`); let cur = '';
     for (let k = 0; k < p.positions.length; k += 3) out.push(`v ${f(p.positions[k])} ${f(p.positions[k + 1])} ${f(p.positions[k + 2])}`);
-    for (let k = 0; k < p.indices.length; k += 3) out.push(`f ${p.indices[k] + base} ${p.indices[k + 1] + base} ${p.indices[k + 2] + base}`);
+    for (let k = 0; k < p.indices.length; k += 3) { const c = triColor(p, k / 3); if (c !== cur) { cur = c; out.push(`usemtl c${c.slice(1)}`); } out.push(`f ${p.indices[k] + base} ${p.indices[k + 1] + base} ${p.indices[k + 2] + base}`); }
     base += p.positions.length / 3;
   });
   const mtl = [...colors].map(c => `newmtl c${c.slice(1)}\nKd ${[1, 3, 5].map(i => (parseInt(c.slice(i, i + 2), 16) / 255).toFixed(4)).join(' ')}`).join('\n');

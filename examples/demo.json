@@ -1,7 +1,7 @@
 [{"op":"setParam","name":"kalinlik","value":4},
 {"op":"add","type":"box","id":"plaka","params":{"w":70,"d":40,"h":"=kalinlik","r":6},"color":"#222222"},
 {"op":"add","type":"cylinder","id":"delik","params":{"dia":6,"top":6,"h":"=kalinlik*3"},"pos":[-28,0,-2],"hole":true},
-{"op":"add","type":"balloonText","id":"yazi","params":{"text":"Ğüş","size":18,"height":5},"pos":[5,0,"=kalinlik"]},
+{"op":"add","type":"text","id":"yazi","params":{"text":"Ğüş","size":18},"effects":[{"type":"balloon","params":{"height":5}}],"color":"#f4a6c8","pos":[5,0,"=kalinlik"]},
 {"op":"group","ids":["plaka","delik","yazi"],"mode":"fused","id":"anahtarlik"},
 {"op":"add","type":"gear","id":"disli","pos":[0,48,0]},
-{"op":"add","type":"balloonSvg","id":"kalp","params":{"width":40},"pos":[60,20,0]}]
+{"op":"add","type":"heart","id":"kalp","params":{"w":40},"effects":[{"type":"balloon","params":{}}],"pos":[60,20,0]}]
