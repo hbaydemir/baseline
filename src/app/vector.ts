@@ -3,7 +3,9 @@ import type { ManifoldToplevel } from 'manifold-3d';
 
 export interface Pt { x: number; y: number; ix?: number; iy?: number; ox?: number; oy?: number }
 export interface Sub { pts: Pt[]; closed: boolean }
-export interface Item { id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean }
+/** text: düzenlenebilir yazı (merkez x,y); noktaları elle değişince yola dönüşür. */
+export interface TextMeta { value: string; size: number; font: string; x: number; y: number }
+export interface Item { id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta }
 type V = [number, number];
 let nextId = 1;
 export const newId = () => nextId++;
@@ -55,7 +57,8 @@ export function bounds(items: Item[]) {
   return x0 < Infinity ? { x0, y0, x1, y1 } : null;
 }
 export function mapItem(it: Item, f: (x: number, y: number) => V, swK = 1): Item {
-  return { ...it, sw: it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
+  const t = it.text && (() => { const [x, y] = f(it.text!.x, it.text!.y); return { ...it.text!, x, y, size: it.text!.size * swK }; })();
+  return { ...it, ...(t ? { text: t } : {}), sw: it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
 }
 /** Bezier'i t'de ikiye böler. */
 function split(p: V[], t: number): [V[], V[]] {

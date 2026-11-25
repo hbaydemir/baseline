@@ -4,11 +4,14 @@ import type { Kernel } from '../core/kernel';
 import { plainPaths } from '../core/svg';
 import * as V from './vector';
 import * as os from './platform';
+import { FontPicker } from './FontPicker';
 
 type Tool = 'select' | 'node' | 'pen' | 'draw' | 'rect' | 'ellipse' | 'polygon' | 'star' | 'heart' | 'text' | 'pan';
 type Sel = { item: number; sub: number; i: number };
 const PAL = ['#222222', '#ffffff', '#e5484d', '#f5a524', '#f7d94c', '#30a46c', '#4f8cff', '#9b5de5', '#f4a6c8', '#8b5e3c', '#8e8c99', '#00b8d4'];
 const clone = (a: V.Item[]) => structuredClone(a);
+/** Noktaları elle değişen yazı artık yol olur. */
+const unText = (b: V.Item[], id: number) => { const it = b.find(x => x.id === id)!; it.text = undefined; return it; };
 
 /** SVG metnini düzenleyici öğelerine çevirir; width > 0 ise o genişliğe ölçekleyip ortalar (SVG şekliyle aynı). */
 export function loadItems(svg: string, width: number): V.Item[] {
@@ -18,7 +21,7 @@ export function loadItems(svg: string, width: number): V.Item[] {
   return items;
 }
 
-export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }: { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; onSave(svg: string, items: V.Item[]): void; onClose(): void }) {
+export function VectorEditor({ kernel, title, initial, guide, note, onSave, onClose }: { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; note?: string; onSave(svg: string, items: V.Item[]): void; onClose(): void }) {
   const [items, setItemsState] = useState<V.Item[]>(initial);
   const itemsRef = useRef(items), past = useRef<V.Item[][]>([]), future = useRef<V.Item[][]>([]);
   const [sel, setSel] = useState<number[]>([]);
@@ -29,7 +32,7 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [fill, setFill] = useState<string | null>('#4f8cff');
   const [corner, setCorner] = useState(1);
-  const [text, setText] = useState('Baseline'), [textSize, setTextSize] = useState(12);
+  const [text, setText] = useState('Yazı'), [textSize, setTextSize] = useState(10), [font, setFont] = useState('');
   const [sides, setSides] = useState(6);
   const [pen, setPen] = useState<V.Sub | null>(null);
   const [draft, setDraft] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
@@ -56,6 +59,9 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
   const snap = (v: number, e: { shiftKey: boolean }) => e.shiftKey ? v : Math.round(v / 0.5) * 0.5;
 
   const selItems = items.filter(it => sel.includes(it.id));
+  const makeText = (t: V.TextMeta, fillC: string): Omit<V.Item, 'id'> => ({ subs: V.parseD(kernel.textPath(t.value, t.size, t.font)).map(s => ({ ...s, pts: s.pts.map(p => ({ ...p, x: p.x + t.x, y: p.y + t.y, ...(p.ix !== undefined ? { ix: p.ix + t.x, iy: p.iy! + t.y } : {}), ...(p.ox !== undefined ? { ox: p.ox + t.x, oy: p.oy! + t.y } : {}) })) })), fill: fillC, stroke: null, sw: 1, even: false, text: t });
+  const editText = (it: V.Item, patch: Partial<V.TextMeta>) => { const t = { ...it.text!, ...patch }; if (!t.value.trim() || !(t.size > 0)) return; try { const n = makeText(t, it.fill ?? '#222222'); setItems(a => a.map(x => x.id === it.id ? { ...x, ...n, fill: x.fill, stroke: x.stroke, sw: x.sw } : x)); } catch (e) { alert((e as Error).message); } };
+  const textItem = selItems.length === 1 && selItems[0].text ? selItems[0] : null;
   const sb = V.bounds(selItems);
   const style = (it: Partial<V.Item>) => setItems(a => a.map(x => sel.includes(x.id) ? { ...x, ...it } : x));
   const add = (it: Omit<V.Item, 'id'>) => { const n = { ...it, id: V.newId() }; setItems(a => [...a, n]); setSel([n.id]); return n; };
@@ -74,8 +80,8 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
     const all = !targets.length;
     setItems(arr => {
       const b = clone(arr);
-      if (all) { for (const it of b) if (sel.includes(it.id) || !sel.length) for (const s of it.subs) for (let i = s.pts.length - 1; i >= 0; i--) if (V.isCorner(s, i)) V.cornerAt(s, i, corner, st); }
-      else for (const t of [...targets].sort((p, q) => q.i - p.i)) { const s = b.find(x => x.id === t.item)?.subs[t.sub]; if (s) V.cornerAt(s, t.i, corner, st); }
+      if (all) { for (const it of b) if (sel.includes(it.id) || !sel.length) for (const s of (it.text = undefined, it.subs)) for (let i = s.pts.length - 1; i >= 0; i--) if (V.isCorner(s, i)) V.cornerAt(s, i, corner, st); }
+      else for (const t of [...targets].sort((p, q) => q.i - p.i)) { const s = unText(b, t.item).subs[t.sub]; if (s) V.cornerAt(s, t.i, corner, st); }
       return b;
     });
     setNodes([]); setSegs([]);
@@ -105,7 +111,7 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
     }
     if (tool === 'draw') { setInk([[x, y]]); drag.current = (mx, my) => setInk(k => k && [...k, [mx, my]]); return; }
     if (tool === 'text') {
-      try { const it = V.mapItem({ id: 0, subs: V.parseD(kernel.textPath(text || ' ', textSize)), fill: fill ?? '#222222', stroke: null, sw: 1, even: false }, (a, b) => [a + x, b + y]); add(it); setTool('select'); } catch (er) { alert((er as Error).message); }
+      try { add(makeText({ value: text || 'Yazı', size: textSize, font, x, y }, fill ?? '#222222')); setTool('select'); setTimeout(() => (document.querySelector('.vec-side .tinput') as HTMLInputElement | null)?.select(), 50); } catch (er) { alert((er as Error).message); }
       return;
     }
     const a: [number, number] = [snap(x, e), snap(y, e)]; setDraft({ a, b: a });
@@ -146,8 +152,8 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
     if (part === 'p') setNodes(s => e.shiftKey ? (s.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? s.filter(q => !(q.item === n.item && q.sub === n.sub && q.i === n.i)) : [...s, n]) : s.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? s : [n]);
     const base = itemsRef.current, [x0, y0] = at(e); let first = true;
     drag.current = (x, y, ev) => {
-      const dx = snap(x - x0, ev), dy = snap(y - y0, ev), b = clone(base), s = b.find(q => q.id === n.item)!.subs[n.sub], p = s.pts[n.i];
-      if (part === 'p') { const move = (q: V.Pt) => { q.x += dx; q.y += dy; if (q.ix !== undefined) { q.ix += dx; q.iy! += dy; } if (q.ox !== undefined) { q.ox += dx; q.oy! += dy; } }; const list = nodes.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? nodes : [n]; for (const m of list) move(b.find(q => q.id === m.item)!.subs[m.sub].pts[m.i]); }
+      const dx = snap(x - x0, ev), dy = snap(y - y0, ev), b = clone(base), s = unText(b, n.item).subs[n.sub], p = s.pts[n.i];
+      if (part === 'p') { const move = (q: V.Pt) => { q.x += dx; q.y += dy; if (q.ix !== undefined) { q.ix += dx; q.iy! += dy; } if (q.ox !== undefined) { q.ox += dx; q.oy! += dy; } }; const list = nodes.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? nodes : [n]; for (const m of list) move(unText(b, m.item).subs[m.sub].pts[m.i]); }
       else {
         const k = part === 'i' ? ['ix', 'iy'] as const : ['ox', 'oy'] as const, o = part === 'i' ? ['ox', 'oy'] as const : ['ix', 'iy'] as const, op = base.find(q => q.id === n.item)!.subs[n.sub].pts[n.i];
         p[k[0]] = op[k[0]]! + dx; p[k[1]] = op[k[1]]! + dy;
@@ -156,9 +162,9 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
       setItems(b, first); first = false;
     };
   };
-  const nodeDouble = (n: Sel) => setItems(a => { const b = clone(a), s = b.find(q => q.id === n.item)!.subs[n.sub], p = s.pts[n.i], m = s.pts.length; if (p.ix !== undefined || p.ox !== undefined) { delete p.ix; delete p.iy; delete p.ox; delete p.oy; } else { const pa = s.pts[(n.i + m - 1) % m], pb = s.pts[(n.i + 1) % m], tx = (pb.x - pa.x) / 6, ty = (pb.y - pa.y) / 6; p.ix = p.x - tx; p.iy = p.y - ty; p.ox = p.x + tx; p.oy = p.y + ty; } return b; });
+  const nodeDouble = (n: Sel) => setItems(a => { const b = clone(a), s = unText(b, n.item).subs[n.sub], p = s.pts[n.i], m = s.pts.length; if (p.ix !== undefined || p.ox !== undefined) { delete p.ix; delete p.iy; delete p.ox; delete p.oy; } else { const pa = s.pts[(n.i + m - 1) % m], pb = s.pts[(n.i + 1) % m], tx = (pb.x - pa.x) / 6, ty = (pb.y - pa.y) / 6; p.ix = p.x - tx; p.iy = p.y - ty; p.ox = p.x + tx; p.oy = p.y + ty; } return b; });
   const segDown = (n: Sel, e: PE) => { e.stopPropagation(); setSegs(s => e.shiftKey || s.length === 1 ? (s.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? s.filter(q => !(q.item === n.item && q.sub === n.sub && q.i === n.i)) : [...s.slice(-1), n]) : [n]); setNodes([]); };
-  const segDouble = (n: Sel, e: React.MouseEvent) => { const [x, y] = at(e); setItems(a => { const b = clone(a), s = b.find(q => q.id === n.item)!.subs[n.sub]; V.insertAt(s, n.i, V.nearestT(s.pts[n.i], s.pts[(n.i + 1) % s.pts.length], x, y)); return b; }); setSegs([]); };
+  const segDouble = (n: Sel, e: React.MouseEvent) => { const [x, y] = at(e); setItems(a => { const b = clone(a), s = unText(b, n.item).subs[n.sub]; V.insertAt(s, n.i, V.nearestT(s.pts[n.i], s.pts[(n.i + 1) % s.pts.length], x, y)); return b; }); setSegs([]); };
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -245,7 +251,7 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
         {ink && <polyline points={ink.map(p => p.join(',')).join(' ')} fill="none" stroke="#1677ff" strokeWidth={1.5 * px} />}
         {draft && <rect x={Math.min(draft.a[0], draft.b[0])} y={Math.min(draft.a[1], draft.b[1])} width={Math.abs(draft.b[0] - draft.a[0])} height={Math.abs(draft.b[1] - draft.a[1])} fill="none" stroke="#1677ff" strokeDasharray={`${4 * px}`} strokeWidth={px} />}
       </svg>
-      <p className="vec-hint">{hint}</p>
+      <p className="vec-hint">{note ?? hint}</p>
     </div>
     <div className="vec-side">
       <section className="card"><header><b>Dolgu</b></header>
@@ -262,7 +268,12 @@ export function VectorEditor({ kernel, title, initial, guide, onSave, onClose }:
         <div className="grid2">{([['X', sb.x0], ['Y', sb.y0], ['G', sb.x1 - sb.x0], ['Y.', sb.y1 - sb.y0]] as const).map(([l, v], k) => <label className="field" key={l}><span>{['Sol', 'Üst', 'Genişlik', 'Yükseklik'][k]}</span><input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0; if (k === 0) transform((a, b) => [a + x - sb.x0, b]); if (k === 1) transform((a, b) => [a, b + x - sb.y0]); if (k === 2 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / w, sb.y0 + (b - sb.y0) * x / w], x / w); if (k === 3 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / h, sb.y0 + (b - sb.y0) * x / h], x / h); }} /></label>)}</div>
         <button className="wide" onClick={() => transform((a, b) => [a - (sb.x0 + sb.x1) / 2, b - (sb.y0 + sb.y1) / 2])}>Ortaya al</button>
       </section>}
-      {tool === 'text' && <section className="card"><header><b>Yazı</b></header><label className="field"><span>Metin</span><input value={text} onChange={e => setText(e.target.value)} /></label><label className="field"><span>Harf boyu (mm)</span><input type="number" min={1} value={textSize} onChange={e => setTextSize(Math.max(1, +e.target.value || 1))} /></label></section>}
+      {textItem ? <section className="card"><header><b>Yazı</b></header>
+        <label className="field"><span>Metin</span><input className="tinput" value={textItem.text!.value} onChange={e => editText(textItem, { value: e.target.value })} /></label>
+        <FontPicker value={textItem.text!.font} onChange={v => editText(textItem, { font: v })} />
+        <label className="field"><span>Yazı boyu (mm)</span><input type="number" min={1} step={0.5} value={Math.round(textItem.text!.size * 100) / 100} onChange={e => editText(textItem, { size: Math.max(0.5, +e.target.value || 0.5) })} /></label>
+        <button className="wide" onClick={() => setItems(a => a.map(x => x.id === textItem.id ? { ...x, text: undefined } : x))}>Vektöre çevir <small>Noktalarını tek tek düzenlemek için</small></button>
+      </section> : tool === 'text' && <section className="card"><header><b>Yazı</b></header><label className="field"><span>Metin</span><input autoFocus value={text} onChange={e => setText(e.target.value)} /></label><FontPicker value={font} onChange={setFont} /><label className="field"><span>Yazı boyu (mm)</span><input type="number" min={1} value={textSize} onChange={e => setTextSize(Math.max(1, +e.target.value || 1))} /></label><p className="hint">Yerleştirmek için çizim alanına tıkla. Sonra da seçip değiştirebilirsin.</p></section>}
       {(tool === 'polygon' || tool === 'star') && <section className="card"><header><b>{tool === 'star' ? 'Uç sayısı' : 'Kenar sayısı'}</b></header><input type="number" min={3} max={40} value={sides} onChange={e => setSides(Math.max(3, Math.min(40, +e.target.value || 3)))} /></section>}
       <p className="hint">Izgara 1 mm. Shift: ızgaraya yapışmadan. Tekerlek: yakınlaştır. Kapalı şekiller katı olur; açık çizgiler yalnız çizgi kalınlığıyla katı olur.</p>
     </div>

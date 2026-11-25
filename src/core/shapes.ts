@@ -1,5 +1,5 @@
 import type { Num } from './expr';
-export interface Field { key: string; label: string; kind: 'num' | 'int' | 'text' | 'svg' | 'select' | 'asset' | 'data'; def: Num; min?: number; max?: number; options?: [string, string][]; group?: 'edge' }
+export interface Field { key: string; label: string; kind: 'num' | 'int' | 'text' | 'svg' | 'select' | 'asset' | 'data' | 'font'; def: Num; min?: number; max?: number; options?: [string, string][]; group?: 'edge' }
 const n = (key: string, label: string, def: Num, min = 0.1, max = 2000): Field => ({ key, label, kind: 'num', def, min, max });
 const i = (key: string, label: string, def: number, min: number, max: number): Field => ({ key, label, kind: 'int', def, min, max });
 const sel = (key: string, label: string, options: [string, string][]): Field => ({ key, label, kind: 'select', def: options[0][0], options });
@@ -41,7 +41,20 @@ export const SHAPES: Record<string, Shape> = {
   dice: { label: 'Zar', cat: 'basic', color: '#ffffff', fields: [n('size', 'Kenar', 16), n('r', 'Köşe yuvarlama', 2.5, 0), sel('pips', 'Noktalar', [['yes', 'Var'], ['no', 'Yok']]), n('pip', 'Nokta çapı', 2.8), n('depth', 'Nokta derinliği', 0.8, 0.1, 10), i('seg', 'Pürüzsüzlük', 32, 8, 96)] },
   diamond: { label: 'Elmas', cat: 'basic', color: '#00b8d4', fields: [i('sides', 'Kenar sayısı', 8, 4, 32), n('dia', 'Çap', 24), n('table', 'Üst tabla çapı', 14, 0), n('crown', 'Üst yükseklik', 5), n('pav', 'Alt yükseklik', 13)] },
   paraboloid: { label: 'Paraboloit', cat: 'basic', color: '#9b5de5', fields: [n('dia', 'Taban çapı', 20), h(), seg] },
-  text: { label: 'Yazı', cat: 'basic', color: '#9b5de5', profile: P, fields: [text('Merhaba'), n('size', 'Harf boyu', 20), n('h', 'Yükseklik', 4), ...corner] },
+  capsule: { label: 'Kapsül', cat: 'basic', color: '#30a46c', fields: [n('dia', 'Çap', 12), h(30), seg] },
+  oval: { label: 'Oval', cat: 'basic', color: '#4f8cff', profile: P, fields: [n('w', 'Genişlik (X)', 30), n('d', 'Derinlik (Y)', 18), h(5), ...corner] },
+  arch: { label: 'Kemer', cat: 'basic', color: '#8b5e3c', fields: [n('w', 'Genişlik', 30), h(25), n('t', 'Et kalınlığı', 5), n('d', 'Derinlik', 10)] },
+  arrow: { label: 'Ok', cat: 'basic', color: '#e5484d', profile: P, fields: [n('len', 'Uzunluk', 40), n('w', 'Gövde genişliği', 8), n('head', 'Uç uzunluğu', 14), n('headW', 'Uç genişliği', 20), h(4), ...corner] },
+  cross: { label: 'Artı', cat: 'basic', color: '#e5484d', profile: P, fields: [n('size', 'Boy', 30), n('arm', 'Kol genişliği', 10), h(5), ...corner] },
+  drop: { label: 'Damla', cat: 'basic', color: '#00b8d4', profile: P, fields: [n('w', 'Genişlik', 20), n('len', 'Boy (Y)', 30), h(5), ...corner] },
+  crescent: { label: 'Hilal', cat: 'basic', color: '#f7d94c', profile: P, fields: [n('dia', 'Çap', 30), n('cut', 'Kesik kaydırma', 9, 0.5), h(4), ...corner] },
+  bubble: { label: 'Konuşma balonu', cat: 'basic', color: '#ffffff', profile: P, fields: [n('w', 'Genişlik', 40), n('dh', 'Boy (Y)', 26), n('r', 'Köşe yarıçapı', 6, 0), n('tail', 'Kuyruk', 8, 0), h(3), ...corner] },
+  badge: { label: 'Rozet', cat: 'basic', color: '#f5a524', profile: P, fields: [n('dia', 'Çap', 40), i('points', 'Dalga sayısı', 18, 5, 80), n('depth', 'Dalga derinliği', 1.6, 0.1), h(3), ...corner] },
+  spiral: { label: 'Spiral', cat: 'basic', color: '#9b5de5', profile: P, fields: [n('turns', 'Tur', 3, 0.5, 40), n('pitch', 'Tur aralığı', 5, 0.8), n('w', 'Çizgi kalınlığı', 2.5), n('inner', 'İç çap', 4, 0), h(3)] },
+  spring: { label: 'Yay', cat: 'basic', color: '#8e8c99', fields: [n('coil', 'Yay çapı', 16), n('wire', 'Tel kalınlığı', 2), n('pitch', 'Adım', 5), n('turns', 'Tur', 5, 0.5, 100), sel('ends', 'Uçlar', [['flat', 'Düz (oturur)'], ['round', 'Yuvarlak']])] },
+  hexGrid: { label: 'Petek plaka', cat: 'basic', color: '#f7d94c', fields: [n('w', 'Genişlik (X)', 60), n('d', 'Derinlik (Y)', 40), h(3), n('cell', 'Hücre', 8, 2), n('wall', 'Duvar', 1.2, 0.4), n('border', 'Kenar', 3, 0)] },
+  qr: { label: 'QR kod', cat: 'basic', color: '', fields: [{ key: 'text', label: 'Metin ya da link', kind: 'text', def: 'https://example.com' }, n('size', 'Boyut', 30, 5), n('h', 'Kabartma', 1, 0.2, 20), n('base', 'Plaka kalınlığı (0 = yok)', 1.6, 0, 50), i('margin', 'Kenar boşluğu (modül)', 2, 0, 8), sel('ecc', 'Hata düzeltme', [['M', 'Orta'], ['L', 'Düşük'], ['Q', 'Yüksek'], ['H', 'En yüksek']])] },
+  text: { label: 'Yazı', cat: 'basic', color: '#9b5de5', profile: P, fields: [text('Merhaba'), { key: 'font', label: 'Yazı tipi', kind: 'font', def: '' }, n('size', 'Yazı boyu (mm)', 20), n('h', 'Yükseklik', 4), ...corner] },
   svg: { label: 'SVG', cat: 'hidden', color: '', profile: P, fields: [{ key: 'svg', label: 'SVG', kind: 'svg', def: '<svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#4f8cff"/></svg>' }, n('width', 'Genişlik (0 = çizimdeki ölçü)', 50, 0), n('h', 'Yükseklik', 3), n('step', 'Renk başına yükselme', 0, 0, 50), ...corner] },
   mesh: { label: 'Model', cat: 'hidden', color: '', fields: [{ key: 'asset', label: 'Veri', kind: 'asset', def: '' }] },
 
@@ -55,9 +68,29 @@ export const SHAPES: Record<string, Shape> = {
   screwHole: { label: 'Vida yuvası', cat: 'mech', color: '#7c8794', hole: true, fields: [metric('m3'), n('depth', 'Delik derinliği', 20, 0.5), sel('head', 'Baş yuvası', [['round', 'Silindir baş'], ['sink', 'Havşa'], ['none', 'Yok']]), gap] },
   nutPocket: { label: 'Somun yuvası', cat: 'mech', color: '#7c8794', hole: true, fields: [metric('m3'), n('extra', 'Ek derinlik', 0.3, 0, 100), n('slot', 'Yandan kanal boyu', 0, 0, 200), n('through', 'Vida deliği boyu', 10, 0), gap] },
   insertHole: { label: 'Isıtmalı insert', cat: 'mech', color: '#7c8794', hole: true, fields: [n('dia', 'Delik çapı', 4), n('depth', 'Derinlik', 6), n('lead', 'Giriş pahı', 0.5, 0)] },
+  magnetHole: { label: 'Mıknatıs yuvası', cat: 'mech', color: '#7c8794', hole: true, fields: [n('dia', 'Mıknatıs çapı', 6), n('h', 'Mıknatıs kalınlığı', 3), n('gap', 'Boşluk', 0.15, 0, 2), n('lead', 'Giriş pahı', 0.4, 0)] },
+  bearingSeat: { label: 'Rulman yuvası', cat: 'mech', color: '#7c8794', hole: true, fields: [{ key: 'bearing', label: 'Rulman', kind: 'select', def: '608', options: [['608', '608 (22×8×7)'], ['625', '625 (16×5×5)'], ['623', '623 (10×3×4)'], ['688', '688 (16×8×5)'], ['6001', '6001 (28×12×8)'], ['6202', '6202 (35×15×11)'], ['MR105', 'MR105 (10×5×4)']] }, n('gap', 'Boşluk', 0.1, 0, 1), n('lip', 'Dayanak omzu', 1.5, 0, 10), n('shaft', 'Mil deliği (0 = yok)', 9, 0)] },
+  knob: { label: 'Tırtıllı topuz', cat: 'mech', color: '#222222', fields: [n('dia', 'Çap', 30), h(12), i('knurls', 'Tırtıl sayısı', 18, 4, 80), { ...sel('size', 'Somun yuvası', [['m5', 'M5'], ['m3', 'M3'], ['m4', 'M4'], ['m6', 'M6'], ['m8', 'M8'], ['none', 'Yok']]) }, n('gap', 'Boşluk', 0.15, 0, 1)] },
+  snapClip: { label: 'Geçmeli klips', cat: 'mech', color: '#30a46c', fields: [n('len', 'Kol uzunluğu', 15, 3), n('t', 'Kol kalınlığı', 1.6, 0.6), n('w', 'Genişlik', 6), n('barb', 'Tırnak yüksekliği', 1.2, 0.3), n('base', 'Kök uzunluğu', 4, 1)] },
+  cableClip: { label: 'Kablo klipsi', cat: 'mech', color: '#ffffff', fields: [n('cable', 'Kablo çapı', 5), i('count', 'Kablo sayısı', 2, 1, 12), n('wall', 'Et', 1.6, 0.6), n('base', 'Taban', 2, 0.6), n('w', 'Genişlik', 8), n('screw', 'Vida deliği (0 = yok)', 3.4, 0), n('gap', 'Boşluk', 0.2, 0, 2)] },
+  livingHinge: { label: 'Esnek menteşe', cat: 'mech', color: '#f4a6c8', fields: [n('w', 'Genişlik', 30), n('leaf', 'Kanat', 20), n('t', 'Kanat kalınlığı', 3), n('web', 'Esnek kısım kalınlığı', 0.5, 0.2, 2), n('span', 'Esnek kısım boyu', 3, 0.5)] },
+  jar: { label: 'Vidalı kavanoz', cat: 'mech', color: '#00b8d4', fields: [n('dia', 'Gövde çapı', 50, 15), h(60), n('wall', 'Duvar', 2, 0.8), n('pitch', 'Diş adımı', 3, 1, 8), gap, sel('show', 'Parçalar', [['both', 'İkisi'], ['jar', 'Yalnız kavanoz'], ['lid', 'Yalnız kapak']])] },
+  rack: { label: 'Kremayer', cat: 'mech', color: '#8e8c99', fields: [n('module', 'Modül', 1.5, 0.3, 20), i('teeth', 'Diş sayısı', 12, 2, 200), n('h', 'Kalınlık', 8), n('base', 'Taban yüksekliği', 4, 0.5), n('angle', 'Basınç açısı', 20, 14, 30)] },
+  pulley: { label: 'GT2 kasnak', cat: 'mech', color: '#8e8c99', fields: [i('teeth', 'Diş sayısı', 20, 10, 120), n('belt', 'Kayış genişliği', 6.4, 3), n('bore', 'Mil deliği', 5, 1), n('flange', 'Kenar flanşı', 1, 0, 5), n('hub', 'Göbek boyu', 6, 0)] },
+  ballJoint: { label: 'Rotil (top mafsal)', cat: 'mech', color: '#9b5de5', fields: [n('ball', 'Top çapı', 12, 5), n('stem', 'Sap boyu', 12, 2), n('gap', 'Boşluk', 0.35, 0.1, 1.5)] },
+  lBracket: { label: 'L köşebent', cat: 'mech', color: '#8e8c99', fields: [n('w', 'Genişlik', 20), n('leg', 'Kol boyu', 30), n('t', 'Kalınlık', 4), n('hole', 'Delik çapı (0 = yok)', 4.5, 0), sel('gusset', 'Destek üçgeni', [['yes', 'Var'], ['no', 'Yok']])] },
+  tNut: { label: '2020 T-somun', cat: 'mech', color: '#8e8c99', fields: [metric('m5'), n('slot', 'Kanal genişliği', 6.2, 3), n('len', 'Boy', 10), n('gap', 'Boşluk', 0.2, 0, 1)] },
   tolTest: { label: 'Tolerans testi', cat: 'mech', color: '#9b5de5', fields: [i('count', 'Adet', 5, 1, 10), n('from', 'İlk boşluk', 0.1, 0.02, 2), n('step', 'Artış', 0.1, 0.01, 1), n('dia', 'Pim çapı', 10, 4), n('h', 'Kalınlık', 8, 4)] },
 };
 
+/** Bölme grubunun ayarları. */
+export const SPLIT: Field[] = [
+  n('tiltX', 'Eğim X (°)', 0, -90, 90), n('tiltY', 'Eğim Y (°)', 0, -90, 90), n('at', 'Konum (mm, ortadan)', 0, -2000, 2000),
+  sel('joint', 'Kilit', [['pin', 'Dübel (ayrı pim)'], ['snap', 'Geçmeli pim (tık diye oturur)'], ['flat', 'Düz (yapıştırma)']]),
+  i('count', 'Kilit sayısı (0 = otomatik)', 0, 0, 8), n('dia', 'Pim çapı (0 = otomatik)', 0, 0, 30), n('depth', 'Pim derinliği (her yarıda)', 6, 1, 60), n('margin', 'Kenardan pay', 2, 0.3, 30), n('gap', 'Boşluk (tolerans)', '=tolerans', 0, 2),
+  sel('layout', 'Görünüm', [['explode', 'Açık önizleme'], ['print', 'Baskı yerleşimi'], ['closed', 'Birleşik']]),
+  { key: 'pins', label: 'Elle kilit yerleri', kind: 'data', def: '' },
+];
 export interface Effect { label: string; hint: string; fields: Field[]; profileOnly?: boolean; hidden?: boolean }
 export const EFFECTS: Record<string, Effect> = {
   balloon: { label: 'Balon', hint: 'Şekli folyo balon gibi şişirir', fields: [n('height', 'Şişkinlik (mm)', 8, 0.2, 300), n('base', 'Kenar kalınlığı (mm)', 1, 0.2, 100), i('detail', 'Detay', 90, 20, 250), sel('style', 'Biçim', [['flat', 'Altı düz (desteksiz)'], ['both', 'İki yüzü şişkin']])] },
@@ -68,5 +101,8 @@ export const EFFECTS: Record<string, Effect> = {
   wave: { label: 'Dalga', hint: 'Yüzeyi X boyunca dalgalandırır', fields: [n('amp', 'Dalga yüksekliği', 2, 0.1, 100), n('len', 'Dalga boyu', 20, 1, 500)] },
   cut: { label: 'Düzlemle kes', hint: 'Modelin bir yanını atar', fields: [sel('axis', 'Yön', [['z', 'Z (yatay kesim)'], ['x', 'X'], ['y', 'Y']]), n('at', 'Kesim yeri (%)', 50, 0, 100), sel('keep', 'Kalan', [['low', 'Alt / sol / ön'], ['high', 'Üst / sağ / arka']])] },
   simplify: { label: 'Sadeleştir', hint: 'Üçgen sayısını azaltır', fields: [n('tol', 'İzin verilen sapma (mm)', 0.05, 0.001, 20)] },
+  array: { label: 'Dizi (çoğalt)', hint: 'Sıra, ızgara ya da daire etrafında kopyalar', fields: [sel('mode', 'Dizilim', [['line', 'Sıra (X)'], ['grid', 'Izgara (X × Y)'], ['circle', 'Daire']]), i('count', 'Adet (X / daire)', 4, 2, 200), i('rows', 'Satır (Y)', 2, 1, 100), n('dx', 'Aralık X (mm)', 25, -2000, 2000), n('dy', 'Aralık Y (mm)', 25, -2000, 2000), n('radius', 'Daire yarıçapı', 30, 0, 2000), sel('turn', 'Daireye dönsün', [['yes', 'Evet'], ['no', 'Hayır']])] },
+  mirror: { label: 'Aynala', hint: 'Yansıtır; istersen aslı da kalır', fields: [sel('axis', 'Eksen', [['x', 'X (sol–sağ)'], ['y', 'Y (ön–arka)'], ['z', 'Z (alt–üst)']]), sel('keep', 'Aslı', [['both', 'Kalsın (simetrik çift)'], ['flip', 'Kalmasın (yalnız ayna)']])] },
+  hollow: { label: 'İçini boşalt', hint: 'Et kalınlığı bırakıp içini oyar (yaklaşık)', fields: [n('t', 'Et kalınlığı (mm)', 1.6, 0.4, 50), sel('open', 'Üstü', [['closed', 'Kapalı'], ['open', 'Açık (kap gibi)']])] },
   conform: { label: 'Yüzeye oturt', hint: 'Seçilen eğri yüzeye uydurur', hidden: true, fields: [{ key: 'grid', label: 'Yüzey', kind: 'data', def: '' }] },
 };

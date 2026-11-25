@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { Kernel, world, builtBounds, triColor, partColors, type Built } from '../src/core/kernel';
 import { apply, newDoc, parseDoc, serialize, type Command, type Doc } from '../src/core/doc';
 import { importModel } from '../src/core/mesh';
+import { loadFont } from './fonts';
 import type { ReadProfile } from '../src/core/bambu';
 import { exportAll, PRINTERS } from '../src/core/export';
 
@@ -18,7 +19,7 @@ function asset(bundled: string, pkg: string) {
 let k: Promise<Kernel> | null = null;
 export const kernel = () => k ??= (() => {
   const font = asset('font.ttf', '@expo-google-fonts/baloo-2/800ExtraBold/Baloo2_800ExtraBold.ttf');
-  return Kernel.create({ wasmBinary: asset('manifold.wasm', 'manifold-3d/manifold.wasm'), font: font.buffer.slice(font.byteOffset, font.byteOffset + font.byteLength) as ArrayBuffer });
+  return Kernel.create({ wasmBinary: asset('manifold.wasm', 'manifold-3d/manifold.wasm'), font: font.buffer.slice(font.byteOffset, font.byteOffset + font.byteLength) as ArrayBuffer }).then(k => { k.fontLoader = loadFont; return k; });
 })();
 
 const activeFile = join(homedir(), '.baseline', 'active.json');

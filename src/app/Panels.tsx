@@ -6,6 +6,10 @@ import type { Built } from '../core/kernel';
 import type { Doc } from '../core/doc';
 import { PRINTERS } from '../core/export';
 import * as os from './platform';
+import { DEFAULT_BRAND, type Brand } from '../core/promo';
+
+export function loadBrand(): Brand { try { return { ...DEFAULT_BRAND, ...JSON.parse(localStorage.getItem('baseline-brand') ?? '{}') }; } catch { return DEFAULT_BRAND; } }
+function saveBrand(b: Brand) { try { localStorage.setItem('baseline-brand', JSON.stringify(b)); } catch { /* yok */ } }
 
 const THUMBS = Object.fromEntries(Object.entries(import.meta.glob('./thumbs/*.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>).map(([k, v]) => [k.replace(/^.*\/|\.png$/g, ''), v]));
 
@@ -38,7 +42,8 @@ export function Assistant({ built, overhang, setOverhang }: { built: Built[]; ov
 interface Entry { key: string; name: string; hint?: string; group: string; thumb?: string; kind: 'template' | 'file'; path?: string; user: boolean; ext: string }
 /** Hazır şablonlar, kullanıcının şablonları ve tasarım havuzu. */
 export function Library({ insert, importFile, say, saveCurrent }: { insert(d: Doc, name: string): void; importFile(name: string, data: Uint8Array): void; say(t: string, bad?: boolean): void; saveCurrent(name: string): Promise<void> }) {
-  const [tab, setTab] = useState<'ready' | 'mine' | 'pool'>('ready'), [files, setFiles] = useState<os.LibFile[]>([]), [thumbs, setThumbs] = useState<Record<string, string>>({}), [name, setName] = useState('');
+  const [brand, setBrandState] = useState<Brand>(loadBrand), setBrand = (b: Brand) => { setBrandState(b); saveBrand(b); };
+  const [tab, setTab] = useState<'ready' | 'mine' | 'pool' | 'brand'>('ready'), [files, setFiles] = useState<os.LibFile[]>([]), [thumbs, setThumbs] = useState<Record<string, string>>({}), [name, setName] = useState('');
   const load = () => os.libList().then(setFiles, e => say(String(e?.message ?? e), true));
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -53,7 +58,7 @@ export function Library({ insert, importFile, say, saveCurrent }: { insert(d: Do
   const pool = entries(p => p.startsWith('app:') || p.startsWith('user:Tasarımlar/'));
   const use = async (e: Entry) => {
     try {
-      if (e.kind === 'template') { const t = TEMPLATES.find(x => x.id === e.key) as Template; insert(templateDoc(t), t.name); return; }
+      if (e.kind === 'template') { const t = TEMPLATES.find(x => x.id === e.key) as Template; insert(templateDoc(t, brand), t.name); return; }
       const data = await os.libRead(e.path!);
       if (e.ext === 'baseline') { const { parseDoc } = await import('../core/doc'); insert(parseDoc(new TextDecoder().decode(data)), e.name); }
       else importFile(`${e.name}.${e.ext}`, data);
@@ -61,13 +66,21 @@ export function Library({ insert, importFile, say, saveCurrent }: { insert(d: Do
   };
   const del = async (e: Entry) => { if (!confirm(`“${e.name}” silinsin mi? Geri alınamaz.`)) return; await os.libDelete(e.path!); if (e.path!.endsWith('.baseline')) await os.libDelete(e.path!.replace(/\.baseline$/, '.png')).catch(() => {}); void load(); };
   const addToPool = async () => { const fs = await os.pickBytes('.baseline,.stl,.obj,.3mf,.svg'); for (const f of fs) await os.libWrite(`user:Tasarımlar/${f.name}`, f.data); if (fs.length) { say(`${fs.length} dosya havuza eklendi`); void load(); } };
-  const list = tab === 'ready' ? ready : tab === 'mine' ? mine : pool, groups = [...new Set(list.map(e => e.group))];
+  const list = tab === 'ready' ? ready : tab === 'mine' ? mine : tab === 'pool' ? pool : [], groups = [...new Set(list.map(e => e.group))];
   return <div className="lib">
-    <div className="seg">{([['ready', 'Hazır şablonlar'], ['mine', 'Şablonlarım'], ['pool', 'Tasarım havuzu']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+    <div className="seg">{([['ready', 'Hazır şablonlar'], ['brand', 'Marka seti'], ['mine', 'Şablonlarım'], ['pool', 'Tasarım havuzu']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+    {tab === 'brand' && <div className="brand">
+      <p className="hint">Bir kez gir; “Promosyon” şablonları (kartvizit, anahtarlık, magnet, tabela…) bu bilgilerle hazır gelir.</p>
+      <div className="grid2">{([['name', 'Firma / ad'], ['slogan', 'Slogan'], ['web', 'Web adresi'], ['phone', 'Telefon']] as const).map(([k, l]) => <label className="field" key={k}><span>{l}</span><input value={brand[k]} onChange={e => setBrand({ ...brand, [k]: e.target.value })} /></label>)}</div>
+      <div className="grid3">{([['c1', 'Ana renk'], ['c2', 'Vurgu rengi'], ['c3', 'Zemin rengi']] as const).map(([k, l]) => <label className="field" key={k}><span>{l}</span><input type="color" value={brand[k]} onChange={e => setBrand({ ...brand, [k]: e.target.value })} /></label>)}</div>
+      <div className="prow"><button onClick={async () => { const f = await os.pickText('.svg'); if (f) setBrand({ ...brand, logo: f.text }); }}>Logo seç (SVG)</button>{brand.logo && <><span className="hint">Logo yüklü</span><button onClick={() => setBrand({ ...brand, logo: '' })}>Logoyu kaldır</button></>}<button onClick={() => setBrand(DEFAULT_BRAND)}>Sıfırla</button></div>
+      {brand.logo && <img className="logo-prev" alt="Logo önizleme" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(brand.logo)}`} />}
+      <button className="tb primary" onClick={() => setTab('ready')}>Promosyon şablonlarına git</button>
+    </div>}
     {tab === 'mine' && <form className="prow" onSubmit={async e => { e.preventDefault(); if (!name.trim()) return; await saveCurrent(name.trim()); setName(''); void load(); }}><label className="field"><span>Açık belgeyi şablon olarak kaydet</span><input placeholder="Şablon adı" value={name} onChange={e => setName(e.target.value)} /></label><button disabled={!name.trim()}>Kaydet</button></form>}
     {tab === 'pool' && <div className="prow"><button onClick={addToPool}>Havuza dosya ekle</button>{os.desktop && <button onClick={() => os.libOpen()}><FolderOpen />Klasörü aç</button>}</div>}
     {tab === 'pool' && <p className="hint">Havuz: uygulamayla gelen tasarımlar ve kendi klasörün (~/.baseline/library/Tasarımlar). Alt klasörler kategori olur; .baseline, STL, OBJ, 3MF ve SVG desteklenir. Aynı adlı .png küçük resim olarak görünür.</p>}
-    {!list.length && <p className="hint">{tab === 'mine' ? 'Henüz şablonun yok. Bir tasarımı yukarıdan ya da nesne panelindeki “Şablon olarak kaydet” ile ekle.' : 'Havuz boş.'}</p>}
+    {!list.length && tab !== 'brand' && <p className="hint">{tab === 'mine' ? 'Henüz şablonun yok. Bir tasarımı yukarıdan ya da nesne panelindeki “Şablon olarak kaydet” ile ekle.' : 'Havuz boş.'}</p>}
     {groups.map(g => <div key={g}><h3>{g}</h3><div className="tiles">{list.filter(e => e.group === g).map(e => <div className="tile" key={e.key}>
       <button className="tile-b" onClick={() => use(e)}>{e.thumb ? <img src={e.thumb} alt="" /> : <span className="ext">{e.ext.toUpperCase()}</span>}<b>{e.name}</b>{e.hint && <small>{e.hint}</small>}</button>
       {e.user && <button className="ib del" aria-label={`${e.name} sil`} onClick={() => del(e)}><Trash2 /></button>}

@@ -45,15 +45,21 @@ export function paintParts(parts: Part[], strokes: Stroke[]): Part[] {
       continue;
     }
     for (const p of out) if (!p.hole) {
-      refine(p, s);
+      refine(p, s); const near = nearOf(s);
       const c = slot(p, s.color), r2 = s.r * s.r;
-      for (let t = 0; t < p.indices.length; t += 3) { const m = [0, 0, 0]; for (let q = 0; q < 3; q++) for (let k = 0; k < 3; k++) m[k] += p.positions[p.indices[t + q] * 3 + k] / 3; if (s.pts.some(x => (x[0] - m[0]) ** 2 + (x[1] - m[1]) ** 2 + (x[2] - m[2]) ** 2 < r2) && dot(triNormal(p.positions, p.indices[t], p.indices[t + 1], p.indices[t + 2]), s.n) > -0.1) p.paint.ix[t / 3] = c; }
+      for (let t = 0; t < p.indices.length; t += 3) { if (!near(p.positions, p.indices[t], p.indices[t + 1], p.indices[t + 2])) continue; const m = [0, 0, 0]; for (let q = 0; q < 3; q++) for (let k = 0; k < 3; k++) m[k] += p.positions[p.indices[t + q] * 3 + k] / 3; if (s.pts.some(x => (x[0] - m[0]) ** 2 + (x[1] - m[1]) ** 2 + (x[2] - m[2]) ** 2 < r2) && dot(triNormal(p.positions, p.indices[t], p.indices[t + 1], p.indices[t + 2]), s.n) > -0.1) p.paint.ix[t / 3] = c; }
     }
   }
   return out.map(p => p.paint.ix.some(Boolean) ? p : { ...p, paint: undefined });
 }
+/** Fırça kutusuna değmeyen üçgen hiç incelenmez. */
+function nearOf(s: Stroke) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const q of s.pts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], q[k] - s.r * 1.2); hi[k] = Math.max(hi[k], q[k] + s.r * 1.2); }
+  return (P: Float32Array, a: number, b: number, c: number) => { for (let k = 0; k < 3; k++) { const x = P[a * 3 + k], y = P[b * 3 + k], z = P[c * 3 + k]; if (Math.max(x, y, z) < lo[k] || Math.min(x, y, z) > hi[k]) return false; } return true; };
+}
 function refine(p: Part & { paint: { ix: Uint8Array } }, s: Stroke) {
-  const min = Math.max(0.15, s.r / 6);
+  const min = Math.max(0.15, s.r / 6), near = nearOf(s);
   for (let pass = 0; pass < 14; pass++) {
     if (p.indices.length / 3 > LIMIT) return;
     const P = p.positions, nv = P.length / 3, mids = new Map<number, number>(), extra: number[] = [], dist = new Float32Array(nv).fill(-1);
@@ -70,11 +76,11 @@ function refine(p: Part & { paint: { ix: Uint8Array } }, s: Stroke) {
     // büyük üçgenin içinde kalan fırça: kenara değmese de böl
     const inside = (a: number, b: number, c: number) => { const v = [a, b, c].map(i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]); return s.pts.some(q => distTri(q, v[0], v[1], v[2]) < s.r * s.r * 0.8); };
     const force = new Set<number>(), long = (a: number, b: number) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
-    for (let t = 0; t < p.indices.length; t += 3) { const v = [p.indices[t], p.indices[t + 1], p.indices[t + 2]]; if (cut(v[0], v[1]) || cut(v[1], v[2]) || cut(v[2], v[0])) continue; if (v.every(i => dv(i) < s.r)) continue; const L = [long(v[0], v[1]), long(v[1], v[2]), long(v[2], v[0])], m = Math.max(...L); if (m > min * 1.5 && inside(v[0], v[1], v[2])) { const q = L.indexOf(m), a = v[q], b = v[(q + 1) % 3]; force.add(a < b ? a * nv + b : b * nv + a); } }
+    for (let t = 0; t < p.indices.length; t += 3) { const v = [p.indices[t], p.indices[t + 1], p.indices[t + 2]]; if (!near(P, v[0], v[1], v[2])) continue; if (cut(v[0], v[1]) || cut(v[1], v[2]) || cut(v[2], v[0])) continue; if (v.every(i => dv(i) < s.r)) continue; const L = [long(v[0], v[1]), long(v[1], v[2]), long(v[2], v[0])], m = Math.max(...L); if (m > min * 1.5 && inside(v[0], v[1], v[2])) { const q = L.indexOf(m), a = v[q], b = v[(q + 1) % 3]; force.add(a < b ? a * nv + b : b * nv + a); } }
     const need = (a: number, b: number) => cut(a, b) || force.has(a < b ? a * nv + b : b * nv + a);
     let any = false;
     for (let t = 0; t < p.indices.length; t += 3) {
-      const c = p.paint.ix[t / 3], v = [p.indices[t], p.indices[t + 1], p.indices[t + 2]], f = [need(v[0], v[1]), need(v[1], v[2]), need(v[2], v[0])], n = +f[0] + +f[1] + +f[2], put = (...q: number[]) => { ix.push(...q); for (let i = 0; i < q.length; i += 3) col.push(c); };
+      const c = p.paint.ix[t / 3], v = [p.indices[t], p.indices[t + 1], p.indices[t + 2]], nr = near(P, v[0], v[1], v[2]), f = nr ? [need(v[0], v[1]), need(v[1], v[2]), need(v[2], v[0])] : [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]].map(([a, b]) => force.has(a < b ? a * nv + b : b * nv + a)), n = +f[0] + +f[1] + +f[2], put = (...q: number[]) => { ix.push(...q); for (let i = 0; i < q.length; i += 3) col.push(c); };
       if (!n) { put(...v); continue; }
       any = true;
       if (n === 3) { const [x, y, z] = [mid(v[0], v[1]), mid(v[1], v[2]), mid(v[2], v[0])]; put(v[0], x, z, x, v[1], y, z, y, v[2], x, y, z); continue; }

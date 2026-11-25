@@ -1,7 +1,8 @@
 // Hazır şablonlar: komut listesinden üretilen belgeler. Ölçüler belge değişkenleriyle değiştirilebilir.
 import { apply, newDoc, type Command, type Doc } from './doc';
+import { DEFAULT_BRAND, PROMO, type Brand } from './promo';
 
-export interface Template { id: string; name: string; hint: string; cat: string; cmds: Command[] }
+export interface Template { id: string; name: string; hint: string; cat: string; cmds: Command[]; brand?: (b: Brand) => Command[] }
 export const TEMPLATES: Template[] = [
   { id: 'keychain', cat: 'Hediye', name: 'İsimli anahtarlık', hint: 'Yuvarlak köşeli plaka, halka deliği, iki renkli yazı', cmds: [
     { op: 'setParam', name: 'kalinlik', value: 3 },
@@ -39,4 +40,5 @@ export const TEMPLATES: Template[] = [
   { id: 'hinge', cat: 'Mekanik', name: 'Yerinde basılan menteşe', hint: 'Montajsız dönen menteşe', cmds: [{ op: 'add', type: 'hinge', name: 'Menteşe' }] },
   { id: 'tol', cat: 'Mekanik', name: 'Tolerans testi', hint: 'Yazıcının geçme boşluğunu bul', cmds: [{ op: 'add', type: 'tolTest', name: 'Tolerans testi' }] },
 ];
-export function templateDoc(t: Template): Doc { return apply(newDoc(), t.cmds).doc; }
+for (const p of PROMO) TEMPLATES.push({ id: p.id, name: p.name, hint: p.hint, cat: 'Promosyon', cmds: p.make(DEFAULT_BRAND), brand: p.make });
+export function templateDoc(t: Template, b?: Brand): Doc { return apply(newDoc(), t.brand && b ? t.brand(b) : t.cmds).doc; }

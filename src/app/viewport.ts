@@ -5,7 +5,9 @@ import { triColor, type Built, type Part } from '../core/kernel';
 import { flood } from '../core/paint';
 
 export type Tool = 'translate' | 'rotate' | 'scale';
-export type Mode = 'edit' | 'surface' | 'paint';
+export type Mode = 'edit' | 'surface' | 'paint' | 'measure';
+interface MPoint { p: THREE.Vector3; n: THREE.Vector3 | null }
+interface Measure { a: MPoint; b: MPoint | null; el: HTMLDivElement }
 export interface Moved { id: string; pos: number[]; rot: number[]; scale: number[] }
 export interface PaintHit { id: string; pts: number[][]; n: number[]; r: number }
 /** Seçilen yüzey: düzlem tabanı (dünya), yüzey sınırı (düzlem koordinatında mm, y aşağı) ve düz olup olmadığı. */
@@ -48,6 +50,9 @@ export class Viewport {
   private hits: THREE.Mesh[] = [];
   private drag: Drag | null = null;
   private label: HTMLDivElement;
+  private measures: Measure[] = [];
+  private hover3: MPoint | null = null;
+  private mGroup = new THREE.Group();
   private cursor: THREE.Mesh;
   private stroke: THREE.Vector3[] = [];
   private strokeObj: string | null = null;
@@ -88,10 +93,44 @@ export class Viewport {
     const loop = () => {
       this.raf = requestAnimationFrame(loop);
       if (!this.dirty) return;
-      this.dirty = false; this.layout();
+      this.dirty = false; this.layout(); this.layoutMeasures();
       this.renderer.clear(); this.renderer.render(this.scene, this.camera); this.renderer.clearDepth(); this.renderer.render(this.hud, this.camera);
     };
     loop();
+  }
+  /** Yakındaki köşeye ya da kenar ortasına yapışan nokta; Shift ile serbest. */
+  private snap(e: PointerEvent): MPoint | null {
+    const h = this.hitObj(e); if (!h || !h.face) return null;
+    const m = h.object as THREE.Mesh, P = (m.geometry as THREE.BufferGeometry).getAttribute('position'), f = h.face;
+    const n = f.normal.clone().transformDirection(m.matrixWorld).normalize();
+    if (e.shiftKey) return { p: h.point.clone(), n };
+    const vs = [f.a, f.b, f.c].map(i => new THREE.Vector3().fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld));
+    const cand = [...vs, ...[0, 1, 2].map(i => vs[i].clone().add(vs[(i + 1) % 3]).multiplyScalar(0.5))];
+    const r = this.renderer.domElement.getBoundingClientRect(), scr = (v: THREE.Vector3) => { const q = v.clone().project(this.camera); return [(q.x + 1) / 2 * r.width + r.left, (1 - q.y) / 2 * r.height + r.top]; };
+    let best: THREE.Vector3 | null = null, bd = 14;
+    for (const c of cand) { const [x, y] = scr(c), d = Math.hypot(x - e.clientX, y - e.clientY); if (d < bd) { bd = d; best = c; } }
+    return { p: best ?? h.point.clone(), n };
+  }
+  clearMeasures() { for (const m of this.measures) m.el.remove(); this.measures = []; this.hover3 = null; this.mGroup.clear(); this.dirty = true; }
+  private layoutMeasures() {
+    const G = this.mGroup; G.clear(); if (G.parent !== this.hud) this.hud.add(G);
+    if (this.mode !== 'measure') return;
+    const k = this.camera.position.distanceTo(this.orbit.target) * Math.tan(this.camera.fov / 2 / DEG) / (this.host.clientHeight || 1) * 2;
+    const dot = (p: THREE.Vector3, c = '#ff8a00') => { const s = new THREE.Mesh(new THREE.SphereGeometry(4.5 * k, 16, 10), new THREE.MeshBasicMaterial({ color: c, depthTest: false })); s.position.copy(p); G.add(s); };
+    const line = (a: THREE.Vector3, b: THREE.Vector3, c = '#ff8a00') => { const g = new THREE.BufferGeometry().setFromPoints([a, b]); G.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: c, depthTest: false }))); };
+    const r = this.host.getBoundingClientRect(), cr = this.renderer.domElement.getBoundingClientRect();
+    for (const m of this.measures) {
+      const b = m.b ?? this.hover3; dot(m.a.p);
+      if (!b) { m.el.style.display = 'none'; continue; }
+      dot(b.p, m.b ? '#ff8a00' : '#ffc380'); line(m.a.p, b.p, m.b ? '#ff8a00' : '#ffc380');
+      const d = b.p.clone().sub(m.a.p), mid = m.a.p.clone().add(b.p).multiplyScalar(0.5).project(this.camera);
+      const f = (x: number) => (Math.round(x * 100) / 100).toString();
+      let extra = '';
+      if (m.a.n && b.n) { const c = Math.abs(m.a.n.dot(b.n)); if (c > 0.9995) extra = `<br>yüzler arası ${f(Math.abs(d.dot(m.a.n)))} mm`; else extra = `<br>yüz açısı ${f(Math.acos(Math.min(1, Math.max(-1, -m.a.n.dot(b.n)))) * DEG)}°`; }
+      m.el.innerHTML = `<b>${f(d.length())} mm</b><span>X ${f(Math.abs(d.x))} · Y ${f(Math.abs(d.y))} · Z ${f(Math.abs(d.z))}</span>${extra}`;
+      Object.assign(m.el.style, { display: mid.z < 1 ? 'block' : 'none', left: `${(mid.x + 1) / 2 * cr.width + cr.left - r.left}px`, top: `${(1 - mid.y) / 2 * cr.height + cr.top - r.top}px` });
+    }
+    if (this.hover3 && (!this.measures.length || this.measures[this.measures.length - 1].b)) dot(this.hover3.p, '#ffc380');
   }
   dispose() { cancelAnimationFrame(this.raf); this.ro.disconnect(); this.orbit.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.label.remove(); }
   private resize() { const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1; this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.dirty = true; }
@@ -99,7 +138,7 @@ export class Viewport {
     const r = this.renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2), this.camera); return ray;
   }
-  private hitObj(e: PointerEvent | MouseEvent) { return this.ray(e).intersectObjects([...this.objs.values()], true).find(h => (h.object as THREE.Mesh).isMesh && !h.object.userData.hole) ?? this.ray(e).intersectObjects([...this.objs.values()], true).find(h => (h.object as THREE.Mesh).isMesh); }
+  private hitObj(e: PointerEvent | MouseEvent) { const hs = this.ray(e).intersectObjects([...this.objs.values()], true).filter(h => (h.object as THREE.Mesh).isMesh && h.object.userData.part); return hs.find(h => !h.object.userData.hole) ?? hs[0]; }
 
   update(built: Built[], sel: string[]) {
     const live = new Set(built.map(b => b.id));
@@ -233,6 +272,13 @@ export class Viewport {
     this.orbit.enabled = false; this.renderer.domElement.setPointerCapture(e.pointerId);
   }
   private down(e: PointerEvent) {
+    if (e.button === 0 && this.mode === 'measure') {
+      const q = this.snap(e); if (!q) return;
+      const last = this.measures[this.measures.length - 1];
+      if (last && !last.b) last.b = q;
+      else { const el = document.createElement('div'); el.className = 'vp-measure'; this.host.appendChild(el); this.measures.push({ a: q, b: null, el }); }
+      this.dirty = true; return;
+    }
     if (e.button !== 0) return;
     if (this.mode === 'surface') { const h = this.hitObj(e); if (h) { this.orbit.enabled = false; this.surface(h); } return; }
     if (this.mode === 'paint') {
@@ -263,6 +309,7 @@ export class Viewport {
     this.stroke = []; this.strokeObj = null;
   }
   private move(e: PointerEvent) {
+    if (this.mode === 'measure') { this.hover3 = this.snap(e); this.dirty = true; return; }
     if (this.mode === 'paint') {
       const h = this.hitObj(e);
       this.cursor.visible = !!h && this.brush > 0;
@@ -357,7 +404,7 @@ export class Viewport {
     const O = v3(s.origin), X = v3(s.x), Y = v3(s.y), N = v3(s.n), ray = new THREE.Raycaster(), meshes = o.children.filter(c => c.userData.part && !c.userData.hole);
     return pts.map(([a, b]) => { const from = O.clone().addScaledVector(X, a).addScaledVector(Y, b).addScaledVector(N, 500); ray.set(from, N.clone().negate()); const h = ray.intersectObjects(meshes, false)[0]; return h ? h.point.clone().sub(O).dot(N) : NaN; });
   }
-  setMode(m: Mode) { this.mode = m; this.cursor.visible = false; this.marks.clear(); this.renderer.domElement.style.cursor = m === 'edit' ? '' : 'crosshair'; this.dirty = true; }
+  setMode(m: Mode) { if (m !== 'measure') this.clearMeasures(); this.mode = m; this.cursor.visible = false; this.marks.clear(); this.renderer.domElement.style.cursor = m === 'edit' ? '' : 'crosshair'; this.dirty = true; }
 }
 const at = (m: THREE.Object3D, p: THREE.Vector3) => { m.position.copy(p); return m; };
 const f1 = (x: number) => (Math.round(x * 10) / 10).toString(), f3 = (x: number) => (Math.round(x * 1000) / 1000).toString();

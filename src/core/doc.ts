@@ -1,9 +1,9 @@
 import { num, resolveParams, type Num, type Vars } from './expr';
-import { EFFECTS, SHAPES, type Field } from './shapes';
+import { EFFECTS, SHAPES, SPLIT, type Field } from './shapes';
 import type { Stroke } from './paint';
 
 export type V3 = [Num, Num, Num];
-export type Mode = 'linked' | 'fused';
+export type Mode = 'linked' | 'fused' | 'split';
 export interface Node {
   id: string; name: string; type: string; params: Record<string, Num>;
   pos: V3; rot: V3; scale: V3; color: string; hole: boolean; hidden: boolean;
@@ -28,6 +28,7 @@ export type Command =
   | { op: 'setParam'; name: string; value: Num | null }
   | { op: 'asset'; id: string; data: string }
   | { op: 'move'; id: string; d: V3 }
+  | { op: 'split'; id: string; params?: Record<string, Num> }
   | { op: 'replace'; id: string; type: string; params?: Record<string, Num>; effects?: EffectUse[] }
   | { op: 'insert'; doc: Doc; pos?: V3; name?: string }
   | { op: 'place'; id: string; on: string; side?: Side; gap?: Num };
@@ -73,8 +74,8 @@ function checkFields(type: string, fields: Field[], params: Record<string, Num>,
     else if (f.options && !f.options.some(o => o[0] === v)) throw new Error(`${type}.${k}: ${f.options.map(o => o[0]).join(' | ')}`);
   }
 }
-function checkParams(type: string, params: Record<string, Num>, vars: Vars) {
-  if (type === 'group') { if (Object.keys(params).length) throw new Error('Grubun şekil parametresi olmaz'); return; }
+function checkParams(type: string, params: Record<string, Num>, vars: Vars, mode?: Mode) {
+  if (type === 'group') { if (mode === 'split') return checkFields('bölme', SPLIT, params, vars); if (Object.keys(params).length) throw new Error('Grubun şekil parametresi olmaz'); return; }
   checkFields(type, SHAPES[type].fields, params, vars);
 }
 function checkEffects(list: unknown, type: string, vars: Vars): EffectUse[] {
@@ -92,7 +93,7 @@ function checkPaint(list: unknown): Stroke[] {
   return list.map((s: Stroke) => { if (!s || !Array.isArray(s.pts) || !s.pts.length || !s.pts.every(isV) || !isV(s.n) || !(s.r >= 0) || !/^#[0-9a-f]{6}$/i.test(s.color)) throw new Error('paint: {pts:[[x,y,z]], n:[x,y,z], r, color}'); return { pts: s.pts, n: s.n, r: s.r, color: s.color.toLowerCase() }; });
 }
 function applyPlace(node: Node, c: Place, vars: Vars) {
-  if (c.params) { checkParams(node.type, c.params, vars); Object.assign(node.params, c.params); }
+  if (c.params) { checkParams(node.type, c.params, vars, node.mode); Object.assign(node.params, c.params); }
   if (c.pos) { checkV3(c.pos, vars, 'pos'); node.pos = c.pos; }
   if (c.rot) { checkV3(c.rot, vars, 'rot'); node.rot = c.rot; }
   if (c.scale) { if (checkV3(c.scale, vars, 'scale').some(x => Math.abs(x) < 1e-4)) throw new Error('scale sıfır olamaz'); node.scale = c.scale; }
@@ -141,6 +142,15 @@ function one(d: Doc, c: Command, created: string[], boundsOf?: BoundsOf) {
     }
     case 'update': { const n = must(d, c.id).node; applyPlace(n, c, vars); return checkAsset(d, n); }
     case 'move': { const { node } = must(d, c.id), o = checkV3(c.d, vars, 'd'); node.pos = node.pos.map((p, i) => o[i] ? r6(num(p, vars) + o[i]) : p) as V3; return; }
+    case 'split': {
+      const { node, list } = must(d, c.id);
+      if (list !== d.nodes) throw new Error('Yalnız en üst düzey nesneler bölünebilir');
+      if (node.hole) throw new Error('Delik bölünemez');
+      const params = { ...Object.fromEntries(SPLIT.map(f => [f.key, f.def])), ...c.params };
+      checkFields('bölme', SPLIT, params, vars);
+      const id = freshId(d, 'bolme'), g: Node = { id, name: `${node.name} (bölünmüş)`, type: 'group', params, pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], color: '', hole: false, hidden: false, children: [node], mode: 'split' };
+      list.splice(list.indexOf(node), 1, g); created.push(id); return;
+    }
     case 'asset': {
       if (!/^[\w-]{1,64}$/.test(c.id) || typeof c.data !== 'string') throw new Error('Geçersiz veri');
       (d.assets ??= {})[c.id] = c.data; return;
@@ -211,7 +221,7 @@ function one(d: Doc, c: Command, created: string[], boundsOf?: BoundsOf) {
       if (!/^[\p{L}_][\p{L}\p{N}_]*$/u.test(c.name) || ['__proto__', 'constructor', 'prototype', 'pi'].includes(c.name)) throw new Error('Geçersiz parametre adı');
       if (c.value === null) delete d.params[c.name]; else d.params[c.name] = c.value;
       const v2 = resolveParams(d.params);
-      each(d.nodes, n => { checkParams(n.type, n.params, v2); checkEffects(n.effects ?? [], n.type, v2); checkV3(n.pos, v2, n.id); checkV3(n.rot, v2, n.id); checkV3(n.scale, v2, n.id); });
+      each(d.nodes, n => { checkParams(n.type, n.params, v2, n.mode); checkEffects(n.effects ?? [], n.type, v2); checkV3(n.pos, v2, n.id); checkV3(n.rot, v2, n.id); checkV3(n.scale, v2, n.id); });
       return;
     }
     case 'place': {
@@ -261,7 +271,8 @@ export function parseDoc(text: string): Doc {
     if (typeof n.id !== 'string' || ids.has(n.id)) throw new Error(`Yinelenen ya da geçersiz kimlik: ${n.id}`);
     ids.add(n.id);
     if (n.type === 'group' ? !Array.isArray(n.children) : !Object.hasOwn(SHAPES, n.type)) throw new Error(`Bilinmeyen nesne: ${n.type}`);
-    checkParams(n.type, n.params, vars); checkV3(n.pos, vars, n.id); checkV3(n.rot, vars, n.id); checkV3(n.scale, vars, n.id);
+    if (n.mode && !['linked', 'fused', 'split'].includes(n.mode)) throw new Error(`Geçersiz grup türü: ${n.mode}`);
+    checkParams(n.type, n.params, vars, n.mode); checkV3(n.pos, vars, n.id); checkV3(n.rot, vars, n.id); checkV3(n.scale, vars, n.id);
     if (n.effects) n.effects = checkEffects(n.effects, n.type, vars);
     if (n.paint) n.paint = checkPaint(n.paint);
     checkAsset(d, n);

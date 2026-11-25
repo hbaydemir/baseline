@@ -108,6 +108,68 @@ fn lib_open(app: AppHandle) -> Result<(), String> {
     std::process::Command::new("explorer").arg(d).spawn().map_err(msg)?; Ok(())
 }
 
+// --- sistem fontları: yalnız ad tablosu okunur, dosyanın tamamı değil ---
+#[derive(serde::Serialize, Clone)]
+struct FontInfo { family: String, style: String, path: String }
+fn font_dirs() -> Vec<PathBuf> {
+    let mut v = vec![PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into())).join("Fonts")];
+    if let Ok(l) = std::env::var("LOCALAPPDATA") { v.push(PathBuf::from(l).join(r"Microsoft\Windows\Fonts")); }
+    v
+}
+fn font_names(path: &Path) -> Option<(String, String)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = fs::File::open(path).ok()?;
+    let mut head = [0u8; 12]; f.read_exact(&mut head).ok()?;
+    let n = u16::from_be_bytes([head[4], head[5]]) as usize;
+    if n == 0 || n > 200 { return None; }
+    let mut dir = vec![0u8; n * 16]; f.read_exact(&mut dir).ok()?;
+    let rec = (0..n).map(|i| &dir[i * 16..i * 16 + 16]).find(|r| &r[0..4] == b"name")?;
+    let off = u32::from_be_bytes([rec[8], rec[9], rec[10], rec[11]]) as u64; let len = u32::from_be_bytes([rec[12], rec[13], rec[14], rec[15]]) as usize;
+    if len > 4_000_000 { return None; }
+    let mut t = vec![0u8; len]; f.seek(SeekFrom::Start(off)).ok()?; f.read_exact(&mut t).ok()?;
+    let u16at = |i: usize| -> Option<u16> { Some(u16::from_be_bytes([*t.get(i)?, *t.get(i + 1)?])) };
+    let (count, store) = (u16at(2)? as usize, u16at(4)? as usize);
+    let get = |want: u16| -> Option<String> {
+        let mut best: Option<(u8, String)> = None;
+        for i in 0..count {
+            let r = 6 + i * 12; let (pl, lang, id, l, o) = (u16at(r)?, u16at(r + 4)?, u16at(r + 6)?, u16at(r + 8)? as usize, u16at(r + 10)? as usize);
+            if id != want { continue; }
+            let b = t.get(store + o..store + o + l)?;
+            let (score, text) = match pl {
+                3 => { let w: Vec<u16> = b.chunks(2).filter(|c| c.len() == 2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect(); (if lang == 0x409 { 3 } else { 2 }, String::from_utf16_lossy(&w)) }
+                1 => (1, b.iter().map(|&c| c as char).collect()),
+                _ => continue,
+            };
+            if best.as_ref().map_or(true, |(s, _)| score > *s) { best = Some((score, text)); }
+        }
+        best.map(|b| b.1).filter(|s| !s.trim().is_empty())
+    };
+    Some((get(16).or_else(|| get(1))?, get(17).or_else(|| get(2)).unwrap_or_else(|| "Regular".into())))
+}
+static FONTS: std::sync::OnceLock<Vec<FontInfo>> = std::sync::OnceLock::new();
+#[tauri::command]
+async fn font_list() -> Vec<FontInfo> {
+    FONTS.get_or_init(|| {
+        let mut out = Vec::new();
+        for d in font_dirs() {
+            let Ok(rd) = fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if !["ttf", "otf"].contains(&ext(&p).as_str()) { continue; }
+                if let Some((family, style)) = font_names(&p) { out.push(FontInfo { family, style, path: p.to_string_lossy().into() }); }
+            }
+        }
+        out.sort_by(|a, b| (a.family.to_lowercase(), a.style.clone()).cmp(&(b.family.to_lowercase(), b.style.clone())));
+        out.dedup_by(|a, b| a.family == b.family && a.style == b.style);
+        out
+    }).clone()
+}
+#[tauri::command]
+fn read_font(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    if !["ttf", "otf"].contains(&ext(&path).as_str()) || !font_dirs().iter().any(|d| path.parent() == Some(d.as_path())) { return Err("Yalnız sistem font klasöründen okunur".into()); }
+    fs::read(path).map(tauri::ipc::Response::new).map_err(msg)
+}
+
 /// Çift tıklanan ya da komut satırında verilen belge.
 #[tauri::command]
 fn startup_file() -> Option<PathBuf> {
@@ -118,7 +180,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![read_text, write_file, file_stamp, set_active, mcp_path, read_profile, startup_file, lib_list, lib_read, lib_write, lib_delete, lib_open])
+        .invoke_handler(tauri::generate_handler![read_text, write_file, file_stamp, set_active, mcp_path, read_profile, startup_file, lib_list, lib_read, lib_write, lib_delete, lib_open, font_list, read_font])
         .run(tauri::generate_context!())
         .expect("Baseline başlatılamadı");
 }

@@ -7,9 +7,12 @@ import { flatten, plainPaths, svgRegions } from './svg';
 import { balloon } from './balloon';
 import { loft } from './loft';
 import { buildSolids, profileOf } from './solids';
+import { buildSolids2, profile2 } from './solids2';
 import { cornerPolys, type P2 } from './corners';
 import { repair, unpackMesh } from './mesh';
 import { paintParts, type Stroke } from './paint';
+import { splitPlan, splitSolids, type SplitOpts } from './split';
+import { SPLIT } from './shapes';
 
 /** paint.ix: üçgen başına 0 = color, k = paint.colors[k-1] */
 export interface Part { color: string; hole: boolean; positions: Float32Array; indices: Uint32Array; paint?: { colors: string[]; ix: Uint8Array } }
@@ -21,6 +24,18 @@ interface Solid { color: string; m: Manifold }
 
 export class Kernel {
   private constructor(readonly wasm: ManifoldToplevel, private font: Font) {}
+  private fonts = new Map<string, Font | null>();
+  /** Eksik fontu eşzamanlı yükleyebilen ortamlar (komut satırı) için. */
+  fontLoader?: (key: string) => ArrayBuffer | null;
+  addFont(key: string, data: ArrayBuffer) { try { this.fonts.set(key, parseFont(data)); } catch { this.fonts.set(key, null); } }
+  hasFont(key: string) { return !key || this.fonts.has(key); }
+  private fontOf(key: string): Font {
+    if (!key) return this.font;
+    if (!this.fonts.has(key) && this.fontLoader) { const d = this.fontLoader(key); if (d) this.addFont(key, d); else this.fonts.set(key, null); }
+    return this.fonts.get(key) ?? this.font;
+  }
+  /** Font sonradan yüklenince önbellek yenilensin. */
+  private fontStamp(n: Node) { return n.type === 'text' && n.params.font ? `${n.params.font}#${this.fonts.get(String(n.params.font)) ? 1 : 0}` : ''; }
   static async create(o: { wasmUrl?: string; wasmBinary?: ArrayBuffer | Uint8Array; font: ArrayBuffer }) {
     const wasm = await Module({ ...(o.wasmUrl ? { locateFile: () => o.wasmUrl! } : {}), ...(o.wasmBinary ? { wasmBinary: o.wasmBinary } : {}) } as any);
     wasm.setup();
@@ -41,7 +56,10 @@ export class Kernel {
       const base = { id: n.id, name: n.name, pos: n.pos.map(x => num(x, vars)), rot: n.rot.map(x => num(x, vars)), scale: n.scale.map(x => num(x, vars)) };
       const key = this.key(n, vars, false); keys.add(key);
       let hit = this.builtCache.get(key);
+      // yalnız yeni boya darbesi eklendiyse öncekinin üstüne uygula
+      const prev = !hit && n.paint?.length && !n.hole ? this.builtCache.get(this.key({ ...n, paint: n.paint.slice(0, -1) }, vars, false)) : undefined;
       if (hit) this.touch(n, vars);
+      else if (prev && !prev.error) { this.touch(n, vars); hit = { ...prev, parts: paintParts(prev.parts, n.paint!.slice(-1)) }; this.builtCache.set(key, hit); }
       else {
         const temps: Manifold[] = [];
         try {
@@ -95,11 +113,11 @@ export class Kernel {
 
   private key(n: Node, vars: Vars, withPlace: boolean): string {
     const p = Object.fromEntries(Object.entries(n.params).map(([k, v]) => [k, this.val(n, k, vars)]));
-    return JSON.stringify([n.type, p, n.color, n.hole, n.mode, this.fxKey(n, vars), n.paint?.length ? n.paint : 0, withPlace ? [n.hidden, ...[...n.pos, ...n.rot, ...n.scale].map(x => num(x, vars))] : 0, n.children?.map(c => this.key(c, vars, true))]);
+    return JSON.stringify([n.type, p, this.fontStamp(n), n.color, n.hole, n.mode, this.fxKey(n, vars), n.paint?.length ? n.paint : 0, withPlace ? [n.hidden, ...[...n.pos, ...n.rot, ...n.scale].map(x => num(x, vars))] : 0, n.children?.map(c => this.key(c, vars, true))]);
   }
   private fxKey(n: Node, vars: Vars) { return (n.effects ?? []).filter(e => !e.off).map(e => [e.type, EFFECTS[e.type].fields.map(f => this.fval(e, f.key, vars))]); }
   private fval(e: { type: string; params: Record<string, import('./expr').Num> }, k: string, vars: Vars) { const f = EFFECTS[e.type].fields.find(x => x.key === k)!, v = e.params[k] ?? f.def; return f.kind === 'num' ? num(v, vars) : f.kind === 'int' ? Math.round(num(v, vars)) : v; }
-  private shapeKey(n: Node, vars: Vars) { return JSON.stringify([n.type, n.color, this.fxKey(n, vars), ...SHAPES[n.type].fields.map(f => this.val(n, f.key, vars))]); }
+  private shapeKey(n: Node, vars: Vars) { return JSON.stringify([n.type, this.fontStamp(n), n.color, this.fxKey(n, vars), ...SHAPES[n.type].fields.map(f => this.val(n, f.key, vars))]); }
   private touch(n: Node, vars: Vars) { if (n.children) n.children.forEach(c => this.touch(c, vars)); else this.touched.add(this.shapeKey(n, vars)); }
   private val(n: Node, k: string, vars: Vars) {
     const f = SHAPES[n.type]?.fields.find(x => x.key === k), v = n.params[k] ?? f?.def;
@@ -121,6 +139,7 @@ export class Kernel {
     });
     const kids = n.children.filter(c => !c.hidden), solids = kids.filter(c => !c.hole).flatMap(placed), holes = kids.filter(c => c.hole).flatMap(placed);
     let res = solids.map(x => ({ ...x }));
+    if (n.mode === 'split') res = splitSolids(this.wasm, solids, this.splitOpts(n, vars)).map(s => ({ color: s.color, m: T(s.m) }));
     if (n.mode === 'fused') {
       // sonra gelen renk öncekini keser: renkler arası çakışma kalmaz
       res = [];
@@ -135,14 +154,25 @@ export class Kernel {
     if (n.effects?.some(e => !e.off)) { res = this.effects(res.map(r => ({ color: r.color, m: r.m.translate([0, 0, 0]) })), n, vars); res.forEach(r => T(r.m)); }
     return res;
   }
+  private splitOpts(n: Node, vars: Vars): SplitOpts {
+    const v = (k: string) => { const f = SPLIT.find(x => x.key === k)!, x = n.params[k] ?? f.def; return f.kind === 'num' || f.kind === 'int' ? num(x, vars) : String(x); };
+    return Object.fromEntries(SPLIT.map(f => [f.key, v(f.key)])) as unknown as SplitOpts;
+  }
+  /** Bölme grubunun kesiti (SVG yolu, mm, y aşağı) ve kilit yerleri: elle düzenlemek için. */
+  splitInfo(doc: Doc, id: string): { outline: string; pts: { x: number; y: number; d: number }[]; area: number } {
+    const f = find(doc.nodes, id), n = f?.node; if (!n || n.mode !== 'split') throw new Error('Bölme grubu değil');
+    const vars = resolveParams(doc.params), temps: Manifold[] = [];
+    try { const kids = this.local({ ...n, mode: 'linked', params: {} }, vars, temps); const p = splitPlan(this.wasm, kids, this.splitOpts(n, vars)); return { outline: p.outline, pts: p.pts, area: p.area }; }
+    finally { temps.forEach(m => m.delete()); }
+  }
   /** Şeklin 2B kesiti (yazı, SVG, poligon...); yoksa null. Çağıran siler. */
   profile(n: Node, vars: Vars): { color: string; cs: CrossSection; h: number }[] | null {
     if (!SHAPES[n.type]?.profile) return null;
     const g = (k: string) => this.val(n, k, vars) as number, t = (k: string) => String(this.val(n, k, vars)), { CrossSection } = this.wasm;
     if (n.type === 'svg') return svgRegions(this.wasm, t('svg'), g('width'), g('corner'), t('cornerStyle')).map((r, i) => ({ color: n.color || r.color, cs: r.cs, h: g('h') + i * g('step') }));
     let polys: P2[][];
-    if (n.type === 'text') { const c = this.textCS(t('text'), g('size')); polys = c.toPolygons() as P2[][]; c.delete(); }
-    else polys = profileOf(n.type, { g, t, label: (x, q) => this.textCS(x, q) })!;
+    if (n.type === 'text') { const c = this.textCS(t('text'), g('size'), t('font')); polys = c.toPolygons() as P2[][]; c.delete(); }
+    else polys = (profileOf(n.type, { g, t, label: (x, q) => this.textCS(x, q) }) ?? profile2(n.type, { g, t, label: (x, q) => this.textCS(x, q) }))!;
     return [{ color: n.color || '#cccccc', cs: CrossSection.ofPolygons(cornerPolys(polys, g('corner'), t('cornerStyle')), n.type === 'text' ? 'EvenOdd' : 'NonZero'), h: g('h') }];
   }
   private shape(n: Node, vars: Vars): Solid[] {
@@ -165,9 +195,11 @@ export class Kernel {
       const m = e > 0 ? loft(this.wasm, o, h, e, e, t('edgeStyle')) : o.extrude(h); o.delete(); return [{ color, m }];
     }
     if (n.type === 'mesh') return this.meshSolids(n, t('asset'));
-    const ms = buildSolids(this.wasm, n.type, { g, t, label: (x, q) => this.textCS(x, q) });
-    if (!ms) throw new Error(`Bilinmeyen şekil: ${n.type}`);
-    return ms.map(m => ({ color, m }));
+    const args = { g, t, label: (x: string, q: number) => this.textCS(x, q) }, ms = buildSolids(this.wasm, n.type, args);
+    if (ms) return ms.map(m => ({ color, m }));
+    const m2 = buildSolids2(this.wasm, n.type, args);
+    if (!m2) throw new Error(`Bilinmeyen şekil: ${n.type}`);
+    return m2.map(s => ({ color: n.color || s.color || color, m: s.m }));
   }
   private meshSolids(n: Node, asset: string): Solid[] {
     const data = this.assets[asset]; if (!data) throw new Error('Model verisi yok');
@@ -207,6 +239,28 @@ export class Kernel {
           case 'wave': { const a = f('amp') / 2, l = f('len'); m = warp(s.m, l / 12, v => { v[2] += a * Math.sin(v[0] / l * 2 * Math.PI); }); break; }
           case 'cut': { const ax = 'xyz'.indexOf(this.fval(e, 'axis', vars) as string), at = lo[ax] + size[ax] * f('at') / 100, low = this.fval(e, 'keep', vars) === 'low', nr: [number, number, number] = [0, 0, 0]; nr[ax] = low ? -1 : 1; m = s.m.trimByPlane(nr, low ? -at : at); break; }
           case 'simplify': m = s.m.simplify(f('tol')); break;
+          case 'array': {
+            const mode = this.fval(e, 'mode', vars), cnt = f('count'), copies: Manifold[] = [];
+            if (mode === 'circle') { const r = f('radius'), turn = this.fval(e, 'turn', vars) === 'yes'; for (let k = 0; k < cnt; k++) { const a = 360 * k / cnt, c = (lo[0] + hi[0]) / 2, d = (lo[1] + hi[1]) / 2, base = s.m.translate([-c, -d, 0]), q = turn ? base.rotate([0, 0, a]) : base; base !== q && base.delete(); const ar = a * Math.PI / 180; copies.push(q.translate([r * Math.cos(ar), r * Math.sin(ar), 0])); q.delete(); } }
+            else { const rowsN = mode === 'grid' ? f('rows') : 1; for (let j = 0; j < rowsN; j++) for (let k = 0; k < cnt; k++) copies.push(s.m.translate([k * f('dx'), j * f('dy'), 0])); }
+            m = this.wasm.Manifold.union(copies); copies.forEach(x => x.delete()); break;
+          }
+          case 'mirror': {
+            const ax = 'xyz'.indexOf(this.fval(e, 'axis', vars) as string), nrm: [number, number, number] = [0, 0, 0]; nrm[ax] = 1;
+            const c = (lo[ax] + hi[ax]) / 2, mv: [number, number, number] = [0, 0, 0];
+            if (this.fval(e, 'keep', vars) === 'both') { mv[ax] = 2 * hi[ax] - 0; const mir = s.m.mirror(nrm), sh: [number, number, number] = [0, 0, 0]; sh[ax] = 2 * hi[ax]; const mt = mir.translate(sh); mir.delete(); m = this.wasm.Manifold.union([s.m, mt]); mt.delete(); }
+            else { const mir = s.m.mirror(nrm), sh: [number, number, number] = [0, 0, 0]; sh[ax] = 2 * c; m = mir.translate(sh); mir.delete(); }
+            if (ax === 2 && this.fval(e, 'keep', vars) === 'both') { const b2 = m.boundingBox(); const q = m.translate([0, 0, -b2.min[2]]); m.delete(); m = q; }
+            break;
+          }
+          case 'hollow': {
+            const th = f('t'), open = this.fval(e, 'open', vars) === 'open', k = size.map(x => Math.max(0.01, (x - 2 * th) / (x || 1)));
+            if (k.some(x => x <= 0.02)) throw new Error('Et kalınlığı çok büyük');
+            const c = lo.map((x, i) => (x + hi[i]) / 2), inner0 = s.m.translate(c.map(x => -x) as [number, number, number]), inner1 = inner0.scale(k as [number, number, number]), inner = inner1.translate(c as [number, number, number]); inner0.delete(); inner1.delete();
+            let cut = inner;
+            if (open) { const up = inner.translate([0, 0, size[2]]), hull = this.wasm.Manifold.hull([inner, up]); up.delete(); cut = hull; inner.delete(); }
+            m = s.m.subtract(cut); cut.delete(); break;
+          }
           case 'conform': {
             const G = JSON.parse(String(this.fval(e, 'grid', vars)) || 'null') as { x: number; y: number; dx: number; dy: number; nx: number; ny: number; h: number[] } | null;
             if (!G) { m = s.m.translate([0, 0, 0]); break; }
@@ -222,15 +276,15 @@ export class Kernel {
     return cur;
   }
   /** Yazının vektör yolu (mm, y aşağı, ortalı). */
-  textPath(text: string, size: number): string {
+  textPath(text: string, size: number, font = ''): string {
     if (!text.trim()) throw new Error('Yazı boş');
-    const p = this.font.getPath(text, 0, 0, size / 0.62), b = p.getBoundingBox(), d = pathD(this.font.getPath(text, -(b.x1 + b.x2) / 2, -(b.y1 + b.y2) / 2, size / 0.62));
+    const F = this.fontOf(font), p = F.getPath(text, 0, 0, size / 0.62), b = p.getBoundingBox(), d = pathD(F.getPath(text, -(b.x1 + b.x2) / 2, -(b.y1 + b.y2) / 2, size / 0.62));
     return plainPaths(`<svg><path d="${d}"/></svg>`).map(x => x.d).join(''); // yalnız M L C Z
   }
-  private textCS(text: string, size: number): CrossSection {
+  private textCS(text: string, size: number, font = ''): CrossSection {
     if (!text.trim()) throw new Error('Yazı boş');
     if (text.length > 200) throw new Error('Yazı çok uzun');
-    const k = size / 0.62, polys = flatten(pathD(this.font.getPath(text, 0, 0, k)), '', size / 1500).filter(c => c.pts.length > 2).map(c => c.pts.map(([x, y]) => [x, -y] as [number, number]).reverse());
+    const k = size / 0.62, polys = flatten(pathD(this.fontOf(font).getPath(text, 0, 0, k)), '', size / 1500).filter(c => c.pts.length > 2).map(c => c.pts.map(([x, y]) => [x, -y] as [number, number]).reverse());
     const a = this.wasm.CrossSection.ofPolygons(polys, 'NonZero'), b = a.bounds(), s = a.simplify(0.01); a.delete();
     const m = s.translate([-(b.min[0] + b.max[0]) / 2, -(b.min[1] + b.max[1]) / 2]); s.delete();
     if (m.isEmpty()) throw new Error('Bu yazı için harf bulunamadı');

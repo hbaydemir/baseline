@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowDown, ArrowUp, Brush, ChevronDown, Eye, EyeOff, Group, Layers, Lock, LockOpen, Move3d, Palette, PenTool, Ruler, Scissors, Shapes, Sparkles, SquareDashed, Trash2, Ungroup, Wand2 } from 'lucide-react';
 import type { Command, Node, EffectUse, Doc } from '../core/doc';
 import { num, type Num, type Vars } from '../core/expr';
-import { EFFECTS, SHAPES, type Field } from '../core/shapes';
+import { EFFECTS, SHAPES, SPLIT, type Field } from '../core/shapes';
+import { FontPicker } from './FontPicker';
 
 export const PALETTE = ['#ffffff', '#222222', '#8e8c99', '#e5484d', '#f5a524', '#f7d94c', '#30a46c', '#4f8cff', '#9b5de5', '#f4a6c8', '#8b5e3c', '#00b8d4'];
 const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
@@ -39,6 +40,7 @@ function Fields({ fields, values, vars, set }: { fields: Field[]; values: Record
   return <>{fields.map(f => {
     const v = values[f.key] ?? f.def;
     if (f.kind === 'svg' || f.kind === 'asset' || f.kind === 'data') return null;
+    if (f.kind === 'font') return <FontPicker key={f.key} label={f.label} value={String(v)} onChange={x => set(f.key, x)} />;
     if (f.kind === 'text') return <TextBox key={f.key} label={f.label} value={String(v)} onCommit={x => set(f.key, x)} />;
     if (f.kind === 'select') return <label className="field" key={f.key}><span>{f.label}</span><select value={String(v)} onChange={e => set(f.key, e.target.value)}>{f.options!.map(([a, b]) => <option key={a} value={a}>{b}</option>)}</select></label>;
     return <NumBox key={f.key} label={f.label} value={v} vars={vars} onCommit={x => set(f.key, x)} />;
@@ -48,7 +50,7 @@ function Fields({ fields, values, vars, set }: { fields: Field[]; values: Record
 export interface InspectorProps {
   node: Node; vars: Vars; run: Run; isTop: boolean; error?: string; dims: number[] | null; local: number[] | null;
   uniform: boolean; setUniform(v: boolean): void;
-  onUngroup(): void; onVector(): void; onSplit(): void; onTemplate(): void; onPaint(): void;
+  onUngroup(): void; onVector(): void; onSplit(): void; onPins(): void; onTemplate(): void; onPaint(): void;
 }
 export function Inspector(p: InspectorProps) {
   const { node, vars, run } = p, up = (x: object) => run([{ op: 'update', id: node.id, ...x }]);
@@ -70,8 +72,9 @@ export function Inspector(p: InspectorProps) {
       {p.error && <p className="error">{p.error}</p>}
       {p.dims && <p className="dims"><Ruler />{p.dims.map(r2).join(' × ')} mm</p>}
     </div>
-    {node.children && <Card id="group" icon={<Group />} title="Grup" hint="Parçaların nasıl birleşeceği">
-      <div className="seg">{(['linked', 'fused'] as const).map(m => <button key={m} aria-pressed={node.mode === m} className={node.mode === m ? 'on' : ''} onClick={() => run([{ op: 'setMode', id: node.id, mode: m }])}>{m === 'linked' ? 'Bağlı' : 'Kaynaşık'}</button>)}</div>
+    {node.mode === 'split' && <SplitCard node={node} vars={vars} up={up} onPins={p.onPins} onUngroup={p.onUngroup} />}
+    {node.children && node.mode !== 'split' && <Card id="group" icon={<Group />} title="Grup" hint="Parçaların nasıl birleşeceği">
+      <div className="seg">{(['linked', 'fused'] as const).map(m => <button key={m} aria-pressed={node.mode === m} className={node.mode === m ? 'on' : ''} onClick={() => run([{ op: 'setMode', id: node.id, mode: m }])}>{m === 'linked' ? 'Grup' : 'Birleşik'}</button>)}</div>
       <p className="hint">{node.mode === 'fused' ? 'Tek gövde: delikler kesilir, renkler birbirini keser.' : 'Birlikte hareket eder, parçalar ayrı kalır.'}</p>
       <button className="wide" onClick={p.onUngroup}><Ungroup />Grubu çöz</button>
     </Card>}
@@ -102,7 +105,7 @@ export function Inspector(p: InspectorProps) {
         <input type="color" aria-label="Özel renk" value={node.color || '#cccccc'} onChange={e => up({ color: e.target.value })} /></div>
       {own && node.color && <button className="wide" onClick={() => up({ color: '' })}>Kendi renklerine dön</button>}
       <div className="seg"><button aria-pressed={!node.hole} className={node.hole ? '' : 'on'} onClick={() => up({ hole: false })}>Katı</button><button aria-pressed={node.hole} className={node.hole ? 'on' : ''} onClick={() => up({ hole: true })}>Delik</button></div>
-      {node.hole && <p className="hint">Kesmesi için katı bir nesneyle birlikte seçip “Kaynaştır”a bas.</p>}
+      {node.hole && <p className="hint">Kesmesi için katı bir nesneyle birlikte seçip “Birleştir”e bas.</p>}
       {!node.hole && <button className="wide" onClick={p.onPaint}><Brush />Yüzeyini boya{node.paint?.length ? ` (${node.paint.length} boya)` : ''}</button>}
       {!!node.paint?.length && <button className="wide" onClick={() => up({ paint: [] })}><Trash2 />Boyayı temizle</button>}
     </Card>
@@ -116,10 +119,30 @@ export function Inspector(p: InspectorProps) {
     </Card>
     <Card id="tools" icon={<Layers />} title="Düzenle" open={false}>
       {vectorable && <button className="wide" onClick={p.onVector}><PenTool />Vektörde düzenle <small>{node.type === 'svg' ? 'Noktaları, şekilleri ve köşeleri düzenle' : 'Vektöre çevirip noktalarını düzenle'}</small></button>}
-      {p.isTop && !node.hole && <button className="wide" onClick={p.onSplit}><Scissors />İkiye böl <small>Ortadan keser, iki parça olur</small></button>}
+      {p.isTop && !node.hole && node.mode !== 'split' && <button className="wide" onClick={p.onSplit}><Scissors />Böl <small>Kesim düzlemi ve kilitlerle parçalara ayır</small></button>}
       <button className="wide" onClick={p.onTemplate}><Shapes />Şablon olarak kaydet</button>
     </Card>
   </>;
+}
+
+function SplitCard({ node, vars, up, onPins, onUngroup }: { node: Node; vars: Vars; up(x: object): boolean; onPins(): void; onUngroup(): void }) {
+  const v = (k: string) => node.params[k] ?? SPLIT.find(f => f.key === k)!.def, set = (k: string, x: Num) => up({ params: { [k]: x } });
+  const preset = (tiltX: number, tiltY: number) => up({ params: { tiltX, tiltY, at: 0 } });
+  const manual = !!String(v('pins') || '').replace(/[[\] ]/g, '');
+  const at = (() => { try { return num(v('at'), vars); } catch { return 0; } })();
+  return <Card id="split" icon={<Scissors />} title="Bölme" hint={String(v('layout')) === 'print' ? 'baskı yerleşimi' : 'önizleme'}>
+    <div className="row-h"><b>Kesim yönü</b></div>
+    <div className="grid2">{([['Yatay', 0, 0], ['Dikey (X)', 0, 90], ['Dikey (Y)', -90, 0], ['Çapraz 45°', -45, 0]] as const).map(([l, a, b]) => <button key={l} className={num(v('tiltX'), vars) === a && num(v('tiltY'), vars) === b ? 'on' : ''} onClick={() => preset(a, b)}>{l}</button>)}</div>
+    <label className="field"><span>Konum <i>{at} mm</i></span><input type="range" min={-100} max={100} step={0.5} value={at} onChange={e => set('at', +e.target.value)} /></label>
+    <Fields fields={SPLIT.filter(f => ['tiltX', 'tiltY', 'at', 'joint', 'layout'].includes(f.key))} values={node.params} vars={vars} set={set} />
+    {String(v('joint')) !== 'flat' && <>
+      <Fields fields={SPLIT.filter(f => ['count', 'dia', 'depth', 'margin', 'gap'].includes(f.key))} values={node.params} vars={vars} set={set} />
+      <button className="wide" onClick={onPins}><PenTool />Kilitleri elle yerleştir <small>{manual ? 'Elle yerleştirildi' : 'Şu an otomatik'}</small></button>
+      {manual && <button className="wide" onClick={() => up({ params: { pins: '' } })}>Otomatik yerleşime dön</button>}
+      <p className="hint">{String(v('joint')) === 'snap' ? 'Geçmeli pim: ucu yarıklı, itince tık diye oturur ve çıkmaz.' : 'Dübel: pimi iki yarıdaki deliğe tak; istersen yapıştır.'} Pimler ayrı ve yatık basılır, iki yarı desteksiz.</p>
+    </>}
+    <button className="wide" onClick={onUngroup}><Ungroup />Bölmeyi kaldır</button>
+  </Card>;
 }
 
 export function MultiPanel({ count, top, run, sel, bounds }: { count: number; top: boolean; run: Run; sel: string[]; bounds(id: string): { min: number[]; max: number[] } | null }) {
@@ -131,9 +154,9 @@ export function MultiPanel({ count, top, run, sel, bounds }: { count: number; to
   const A = [[<AlignStartVertical key="a" />, <AlignCenterVertical key="b" />, <AlignEndVertical key="c" />], [<AlignEndHorizontal key="a" />, <AlignCenterHorizontal key="b" />, <AlignStartHorizontal key="c" />], [<AlignEndHorizontal key="a" />, <AlignCenterHorizontal key="b" />, <AlignStartHorizontal key="c" />]];
   return <>
     <div className="ins-head"><h2>{count} nesne seçili</h2></div>
-    <Card id="m-group" icon={<Group />} title="Birleştir">
-      <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'linked' }])}><Group />Bağla <small>Birlikte hareket eder, ayrı parça kalır</small></button>
-      <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'fused' }])}><Shapes />Kaynaştır <small>Tek gövde olur, delikler kesilir</small></button>
+    <Card id="m-group" icon={<Group />} title="Grupla / birleştir">
+      <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'linked' }])}><Group />Grupla <small>Birlikte hareket eder, ayrı parça kalır</small></button>
+      <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'fused' }])}><Shapes />Birleştir <small>Tek gövde olur, delikler kesilir</small></button>
     </Card>
     <Card id="m-align" icon={<AlignCenterVertical />} title="Hizala">
       {['X (sol–sağ)', 'Y (ön–arka)', 'Z (alt–üst)'].map((l, ax) => <div className="align" key={l}><span>{l}</span>{([0, 0.5, 1] as const).map((w, k) => <button key={k} className="ib" title={`${l}: ${['başa', 'ortaya', 'sona'][k]}`} aria-label={`${l} ${['başa', 'ortaya', 'sona'][k]}`} disabled={!top} onClick={() => align(ax, w)}>{A[ax][k]}</button>)}</div>)}
@@ -154,7 +177,7 @@ export function DocPanel({ doc, vars, run }: { doc: Doc; vars: Vars; run: Run })
       <form className="prow" onSubmit={e => { e.preventDefault(); if (n in doc.params) return; if (run([{ op: 'setParam', name: n.trim(), value: 10 }])) setN(''); }}><label className="field"><span>Yeni ölçü adı</span><input placeholder="kalinlik" value={n} onChange={e => setN(e.target.value)} /></label><button disabled={!n.trim()}>Ekle</button></form>
     </Card>
     <Card id="d-keys" icon={<Move3d />} title="Kısayollar" open={false}>
-      <p className="keys"><kbd>W</kbd> taşı <kbd>E</kbd> döndür <kbd>R</kbd> ölçekle <kbd>F</kbd> sığdır <kbd>Ctrl+D</kbd> çoğalt <kbd>Ctrl+G</kbd> bağla <kbd>Del</kbd> sil <kbd>Shift</kbd> ince ayar (ızgarasız)</p>
+      <p className="keys"><kbd>W</kbd> taşı <kbd>E</kbd> döndür <kbd>R</kbd> ölçekle <kbd>F</kbd> sığdır <kbd>Ctrl+D</kbd> çoğalt <kbd>Ctrl+G</kbd> grupla <kbd>Del</kbd> sil <kbd>Shift</kbd> ince ayar (ızgarasız)</p>
       <p className="hint">Seçili nesneyi gövdesinden tutup sürüklersen yalnız X–Y’de kayar. Yukarı–aşağı için mavi oku kullan.</p>
     </Card>
   </>;

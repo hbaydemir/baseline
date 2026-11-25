@@ -59,6 +59,15 @@ export function newer(a: string, b: string) {
   return false;
 }
 
+// --- sistem fontları ---
+export interface FontInfo { family: string; style: string; path: string }
+let fontsP: Promise<FontInfo[]> | null = null;
+export const fontList = () => fontsP ??= desktop ? invoke<FontInfo[]>('font_list') : Promise.resolve([]);
+export async function readFont(key: string): Promise<ArrayBuffer | null> {
+  const [family, style] = key.split('|'), list = await fontList(), f = list.find(x => x.family === family && x.style === style) ?? list.find(x => x.family === family);
+  return f ? invoke<ArrayBuffer>('read_font', { path: f.path }) : null;
+}
+
 // --- şablonlar ve tasarım havuzu ---
 export interface LibFile { path: string; size: number; modified: number }
 const LS = 'baseline-library';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
+import { ArrowDownToLine, ChevronUp, Scissors, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
 import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
@@ -25,7 +25,7 @@ const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
 const MODEL = /\.(stl|obj|3mf)$/i;
 type Dialog = 'export' | 'ai' | 'update' | 'assist' | 'library';
 type Decal = { kind: 'raise' | 'cut'; depth: number };
-type VecJob = { title: string; items: V.Item[]; guide?: string; save(svg: string, items: V.Item[]): void };
+type VecJob = { title: string; items: V.Item[]; guide?: string; hint?: string; save(svg: string, items: V.Item[]): void };
 
 export function App({ kernel }: { kernel: Kernel }) {
   const [doc, setDocState] = useState<Doc>(newDoc);
@@ -36,11 +36,11 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
   const [tool, setTool] = useState<Tool>('translate');
   const [magnet, setMagnet] = useState(true), [symmetric, setSymmetric] = useState(false), [uniform, setUniform] = useState(false);
-  const [mode, setMode] = useState<'edit' | 'surface' | 'paint'>('edit');
+  const [mode, setMode] = useState<'edit' | 'surface' | 'paint' | 'measure'>('edit');
   const [decal, setDecal] = useState<Decal>({ kind: 'raise', depth: 1 });
   const [brush, setBrush] = useState(0), [paintColor, setPaintColor] = useState('#e5484d');
   const [overhang, setOverhang] = useState(false);
-  const [cat, setCat] = useState<'basic' | 'mech'>('basic');
+  const [pop, setPop] = useState<'basic' | 'mech' | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [vec, setVec] = useState<VecJob | null>(null);
   const host = useRef<HTMLDivElement>(null), vp = useRef<Viewport | null>(null);
@@ -82,7 +82,16 @@ export function App({ kernel }: { kernel: Kernel }) {
   }, [persist, setDoc]);
 
   if (import.meta.env.DEV) (window as unknown as { __baseline: object }).__baseline = { doc: () => docRef.current, kernel };
-  const [built, vars] = useMemo<[Built[], Vars]>(() => [kernel.build(doc), resolveParams(doc.params)], [doc, kernel]);
+  // belgedeki sistem fontlarını yükle; yüklenince yeniden üret
+  const [fontTick, setFontTick] = useState(0), tried = useRef(new Set<string>());
+  useEffect(() => {
+    const need = new Set<string>(); const walk = (ns: Node[]) => ns.forEach(n => { if (n.type === 'text' && n.params.font) need.add(String(n.params.font)); if (n.children) walk(n.children); }); walk(doc.nodes);
+    for (const k of need) if (!kernel.hasFont(k) && !tried.current.has(k)) {
+      tried.current.add(k);
+      os.readFont(k).then(d => { if (d) { kernel.addFont(k, d); setFontTick(t => t + 1); } else say(`“${k.replace('|', ' ')}” yazı tipi bu bilgisayarda yok; Baloo kullanılıyor`, true); }, e => say(`Yazı tipi okunamadı: ${e?.message ?? e}`, true));
+    }
+  }, [doc, kernel, say]);
+  const [built, vars] = useMemo<[Built[], Vars]>(() => [kernel.build(doc), resolveParams(doc.params)], [doc, kernel, fontTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const bounds = useCallback((id: string) => { const b = built.find(x => x.id === id); return b && !b.error && b.parts.length ? builtBounds(b) : null; }, [built]);
 
   // --- dosya ---
@@ -235,13 +244,19 @@ export function App({ kernel }: { kernel: Kernel }) {
       },
     });
   };
-  const split = (node: Node) => {
-    const b = bounds(node.id); if (!b) return;
-    const w = b.max[0] - b.min[0], fx = node.effects ?? [], copy = `${node.id}_b`.replace(/[^\w-]/g, '');
-    run([{ op: 'update', id: node.id, effects: [...fx, { type: 'cut', params: { axis: 'z', at: 50, keep: 'low' } }] }, { op: 'duplicate', id: node.id, newId: find(docRef.current.nodes, copy) ? undefined : copy, offset: [r3(w + 5), 0, 0] }]);
-    const d = docRef.current, last = d.nodes[d.nodes.indexOf(find(d.nodes, node.id)!.node) + 1];
-    if (last) run([{ op: 'update', id: last.id, effects: [...fx, { type: 'cut', params: { axis: 'z', at: 50, keep: 'high' } }] }, { op: 'place', id: last.id, on: 'plate' }]);
-    say('İkiye bölündü. Kesim yönünü ve yerini “Efektler”den değiştirebilirsin');
+  /** Bölme: nesne bir bölme grubuna sarılır; ayarlar sağ panelde. */
+  const startSplit = (node: Node) => { if (run([{ op: 'split', id: node.id }], true)) say('Kesim düzlemini ve kilitleri sağ panelden ayarla. Bitince görünümü “Baskı yerleşimi” yap'); };
+  /** Kilitleri kesit üzerinde elle yerleştir. */
+  const editPins = (node: Node) => {
+    let info; try { info = kernel.splitInfo(docRef.current, node.id); } catch (e) { say((e as Error).message, true); return; }
+    const items: V.Item[] = info.pts.map(p => ({ id: V.newId(), subs: [V.ellipseSub(p.x, -p.y, p.d / 2, p.d / 2)], fill: '#ff8a00', stroke: null, sw: 1, even: false }));
+    setVec({
+      title: `Kilit yerleri: ${node.name}`, items, guide: info.outline, hint: 'Turuncu daireler kilit yerleri: taşı, çoğalt (Ctrl+D), sil ya da boyutunu değiştir. Kesik çizgi kesitin sınırı.',
+      save: (_svg, its) => {
+        const pins = its.map(it => V.bounds([it])!).map(b => [r3((b.x0 + b.x1) / 2), r3(-(b.y0 + b.y1) / 2), r3(Math.min(b.x1 - b.x0, b.y1 - b.y0))]);
+        if (run([{ op: 'update', id: node.id, params: { pins: JSON.stringify(pins), count: 0 } }])) { setVec(null); say(`${pins.length} kilit elle yerleştirildi`); }
+      },
+    });
   };
 
   const remove = () => { if (sel.length && run([{ op: 'remove', ids: sel.filter(id => !sel.some(o => o !== id && inside(doc, o, id))) }])) setSel([]); };
@@ -253,7 +268,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     const k = e.key.toLowerCase(), c = e.ctrlKey || e.metaKey;
     const act = c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
       : c && k === 'd' ? () => sel.length && run(sel.map(id => ({ op: 'duplicate', id }) as Command), true) : c && k === 'g' ? () => sel.length > 1 && group('linked')
-      : k === 'escape' ? () => setMode('edit')
+      : k === 'escape' ? () => { setMode('edit'); setPop(null); } : !c && k === 'm' ? () => setMode(mode === 'measure' ? 'edit' : 'measure')
       : k === 'delete' || k === 'backspace' ? remove : !c && k === 'w' ? () => setTool('translate') : !c && k === 'e' ? () => setTool('rotate') : !c && k === 'r' ? () => setTool('scale') : !c && k === 'f' ? () => vp.current?.fit() : null;
     if (act) { e.preventDefault(); void act(); }
   };
@@ -263,46 +278,40 @@ export function App({ kernel }: { kernel: Kernel }) {
   const node = sel.length === 1 ? find(doc.nodes, sel[0])?.node : undefined;
   const top = sel.every(id => doc.nodes.some(n => n.id === id));
   const localDims = (id: string) => { const b = built.find(x => x.id === id); if (!b || b.error || !b.parts.length) return null; const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity]; for (const p of b.parts) for (let i = 0; i < p.positions.length; i++) { const k = i % 3; lo[k] = Math.min(lo[k], p.positions[i]); hi[k] = Math.max(hi[k], p.positions[i]); } return hi.map((h, k) => h - lo[k]); };
+  const D = (p: { t: string; on: () => void; off?: boolean; active?: boolean; children: ReactNode }) => <button className={p.active ? 'db active' : 'db'} data-tip={p.t} aria-label={p.t} aria-pressed={p.active} disabled={p.off} onClick={p.on}>{p.children}</button>;
+  const canSplit = !!node && top && !node.hole && node.mode !== 'split';
   const B = (p: { t: string; on: () => void; off?: boolean; active?: boolean; children: ReactNode }) => <button className={p.active ? 'ib active' : 'ib'} title={p.t} aria-label={p.t} aria-pressed={p.active} disabled={p.off} onClick={p.on}>{p.children}</button>;
   const paintTarget = mode === 'paint';
 
+  useEffect(() => { if (!pop) return; const f = () => setPop(null); addEventListener('click', f); return () => removeEventListener('click', f); }, [pop]);
   return <div className="app" onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); importFiles(await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })))); }}>
     <header>
       <b className="logo">Baseline</b>
       <B t="Yeni" on={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 /></B>
       <B t="Aç (Ctrl+O)" on={openDoc}><FolderOpen /></B>
       <B t="Kaydet (Ctrl+S)" on={saveDoc}><Save /></B>
-      <button className="tb" title="STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin." onClick={importPick}><FileUp />İçe aktar</button>
       <i />
       <B t="Geri al (Ctrl+Z)" off={!past.current.length} on={() => step(past, future)}><Undo2 /></B>
       <B t="Yinele (Ctrl+Y)" off={!future.current.length} on={() => step(future, past)}><Redo2 /></B>
       <i />
-      <B t="Taşı (W) — gövdeden tutunca yalnız X–Y" active={mode === 'edit' && tool === 'translate'} on={() => { setMode('edit'); setTool('translate'); }}><Move3d /></B>
-      <B t="Döndür (E)" active={mode === 'edit' && tool === 'rotate'} on={() => { setMode('edit'); setTool('rotate'); }}><Rotate3d /></B>
-      <B t="Ölçekle (R)" active={mode === 'edit' && tool === 'scale'} on={() => { setMode('edit'); setTool('scale'); }}><Scale3d /></B>
+      <B t="Mıknatıs: kenara ve ortaya yapış" active={magnet} on={() => setMagnet(!magnet)}><Magnet /></B>
+      <B t="Böl (kesim düzlemi ve kilitler)" off={!canSplit} on={() => node && startSplit(node)}><Scissors /></B>
+      <B t="Tablaya oturt" off={!sel.length || !top} on={() => run(sel.map(id => ({ op: 'place', id, on: 'plate' }) as Command))}><ArrowDownToLine /></B>
       {tool === 'scale' && mode === 'edit' && <>
         <button className={symmetric ? 'chip on' : 'chip'} title="Açık: iki yöne eşit büyür (Y+ ve Y−). Kapalı: yalnız tuttuğun yöne büyür." aria-pressed={symmetric} onClick={() => setSymmetric(!symmetric)}><Columns2 />Simetrik</button>
         <button className={uniform ? 'chip on' : 'chip'} title="Açık: X, Y, Z aynı oranda büyür. Kapalı: serbest." aria-pressed={uniform} onClick={() => setUniform(!uniform)}><Lock />Oranlı</button>
       </>}
-      <B t="Mıknatıs: kenara ve ortaya yapış" active={magnet} on={() => setMagnet(!magnet)}><Magnet /></B>
-      <i />
-      <button className={mode === 'surface' ? 'tb active' : 'tb'} title="Bir yüzeye tıkla, üstüne yazı, şekil ya da SVG çiz" onClick={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick />Yüzeye çiz</button>
-      <button className={mode === 'paint' ? 'tb active' : 'tb'} title="Yüzeyleri boya" onClick={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush />Boya</button>
       <i />
       <B t="Çoğalt (Ctrl+D)" off={!sel.length} on={() => run(sel.map(id => ({ op: 'duplicate', id })), true)}><Copy /></B>
       <B t="Sil (Delete)" off={!sel.length} on={remove}><Trash2 /></B>
       <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
-      <button className="tb" onClick={() => setDialog('library')}><LayoutTemplate />Şablonlar</button>
-      <button className="tb" onClick={() => setDialog('assist')}><Settings2 />Baskı asistanı</button>
       <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
       <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>
       <button className="tb primary" disabled={!doc.nodes.length} onClick={() => setDialog('export')}><Download />Dışa aktar</button>
     </header>
     <aside className="left">
-      <div className="seg tabs"><button className={cat === 'basic' ? 'on' : ''} onClick={() => setCat('basic')}><Shapes />Şekiller</button><button className={cat === 'mech' ? 'on' : ''} onClick={() => setCat('mech')}><Ruler />Mekanik</button></div>
-      <div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === cat).map(([t, s]) => <button key={t} title={s.label} onClick={() => addShape(t)}>{ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div>
       <h2>Nesneler</h2>
-      <div className="tree">{doc.nodes.length ? <Tree nodes={doc.nodes} sel={sel} built={built} pick={(id, add) => setSel(s => add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id])} hide={n => run([{ op: 'update', id: n.id, hidden: !n.hidden }])} /> : <p className="hint">Soldan bir şekle tıkla, “İçe aktar” ile STL/3MF/OBJ/SVG ekle ya da dosyayı pencereye bırak.</p>}</div>
+      <div className="tree">{doc.nodes.length ? <Tree nodes={doc.nodes} sel={sel} built={built} pick={(id, add) => setSel(s => add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id])} hide={n => run([{ op: 'update', id: n.id, hidden: !n.hidden }])} /> : <p className="hint">Alttaki araç kutusundan bir şekil ekle, “İçe aktar” ile STL/3MF/OBJ/SVG aç ya da dosyayı pencereye bırak.</p>}</div>
     </aside>
     <main ref={host}>
       <div className="views">
@@ -310,6 +319,26 @@ export function App({ kernel }: { kernel: Kernel }) {
         <button title="Sığdır (F)" aria-label="Sığdır" onClick={() => vp.current?.fit()}><Maximize /></button>
         <button className={overhang ? 'on' : ''} title="Destek gereken yerleri göster" aria-pressed={overhang} onClick={() => setOverhang(!overhang)}>Destek</button>
       </div>
+      <div className="dock" onClick={e => e.stopPropagation()}>
+        {pop && <div className="pop" role="dialog">
+          {pop === 'basic' || pop === 'mech' ? <><b>{pop === 'basic' ? 'Şekiller' : 'Mekanik parçalar'}</b><div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === pop).map(([t, s]) => <button key={t} title={s.label} onClick={() => { addShape(t); setPop(null); }}>{ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div></> : null}
+        </div>}
+        <D t="Taşı (W) — gövdeden tutunca yalnız X–Y" active={mode === 'edit' && tool === 'translate'} on={() => { setMode('edit'); setTool('translate'); }}><Move3d /></D>
+        <D t="Döndür (E)" active={mode === 'edit' && tool === 'rotate'} on={() => { setMode('edit'); setTool('rotate'); }}><Rotate3d /></D>
+        <D t="Ölçekle (R)" active={mode === 'edit' && tool === 'scale'} on={() => { setMode('edit'); setTool('scale'); }}><Scale3d /></D>
+        <i />
+        <D t="Şekiller" active={pop === 'basic'} on={() => setPop(pop === 'basic' ? null : 'basic')}><Shapes /><ChevronUp className="up" /></D>
+        <D t="Mekanik parçalar" active={pop === 'mech'} on={() => setPop(pop === 'mech' ? null : 'mech')}><Cog /><ChevronUp className="up" /></D>
+        <D t="İçe aktar: STL, OBJ, 3MF, SVG (Ctrl+I)" on={importPick}><FileUp /></D>
+        <i />
+        <D t="Yüzeye çiz: yüze tıkla, yazı / şekil / SVG ekle" active={mode === 'surface'} on={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick /></D>
+        <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>
+        <D t="Ölç (M)" active={mode === 'measure'} on={() => setMode(mode === 'measure' ? 'edit' : 'measure')}><Ruler /></D>
+        <i />
+        <D t="Şablonlar ve tasarım havuzu" on={() => setDialog('library')}><LayoutTemplate /></D>
+        <D t="Baskı asistanı" on={() => setDialog('assist')}><Settings2 /></D>
+      </div>
+      {mode === 'measure' && <div className="banner"><b>Ölç</b><span>İki noktaya tıkla; köşeye ve kenar ortasına yapışır (Shift: serbest). Yeni ölçü için tekrar tıkla.</span><button onClick={() => { setMode('edit'); setTimeout(() => setMode('measure'), 0); }}>Temizle</button><button className="ib" aria-label="Kapat" onClick={() => setMode('edit')}><X /></button></div>}
       {mode === 'surface' && <div className="banner">
         <b>Bir yüzeye tıkla</b><span>Açılan çizim alanında yazı, şekil ya da SVG ekle; kaydedince yüzeye oturur.</span>
         <div className="seg"><button className={decal.kind === 'raise' ? 'on' : ''} onClick={() => setDecal({ ...decal, kind: 'raise' })}>Kabartma</button><button className={decal.kind === 'cut' ? 'on' : ''} onClick={() => setDecal({ ...decal, kind: 'cut' })}>Oyma</button></div>
@@ -330,7 +359,7 @@ export function App({ kernel }: { kernel: Kernel }) {
           dims={(() => { const b = bounds(node.id); return b ? [0, 1, 2].map(i => b.max[i] - b.min[i]) : null; })()} local={doc.nodes.includes(node) ? localDims(node.id) : null}
           uniform={uniform} setUniform={setUniform}
           onUngroup={() => { const kids = node.children!.map(c => c.id); if (run([{ op: 'ungroup', id: node.id }])) setSel(kids); }}
-          onVector={() => editVector(node)} onSplit={() => split(node)} onTemplate={() => { const n = prompt('Şablon adı', node.name); if (n) void saveTemplate(n); }} onPaint={() => setMode('paint')} />
+          onVector={() => editVector(node)} onSplit={() => startSplit(node)} onPins={() => editPins(node)} onTemplate={() => { const n = prompt('Şablon adı', node.name); if (n) void saveTemplate(n); }} onPaint={() => setMode('paint')} />
           : <DocPanel doc={doc} vars={vars} run={run} />}
     </aside>
     {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu' }[dialog]}>
@@ -340,7 +369,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
-    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} onSave={vec.save} onClose={() => setVec(null)} />}
+    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onClose={() => setVec(null)} />}
     {toast && <div className={toast.bad ? 'toast bad' : 'toast'} role="status">{toast.text}</div>}
     <span hidden>{freeX(0)}</span>
   </div>;
@@ -350,7 +379,7 @@ const inside = (doc: Doc, parent: string, id: string) => { const p = find(doc.no
 function Tree(p: { nodes: Node[]; sel: string[]; built: Built[]; pick(id: string, add: boolean): void; hide(n: Node): void }) {
   return <ul>{p.nodes.map(n => { const err = p.built.find(b => b.id === n.id)?.error; return <li key={n.id}>
     <div className={p.sel.includes(n.id) ? 'row on' : 'row'}>
-      <button className="name" title={err} onClick={e => p.pick(n.id, e.shiftKey || e.ctrlKey)}><span className="dot" style={{ background: n.hole ? 'repeating-linear-gradient(45deg,#888 0 2px,#fff 2px 4px)' : n.color || '#bbb' }} />{n.name}{n.children ? <small>{n.mode === 'fused' ? 'kaynaşık' : 'bağlı'}</small> : null}{n.effects?.length ? <small>✦</small> : null}{err ? <small className="err">hata</small> : null}</button>
+      <button className="name" title={err} onClick={e => p.pick(n.id, e.shiftKey || e.ctrlKey)}><span className="dot" style={{ background: n.hole ? 'repeating-linear-gradient(45deg,#888 0 2px,#fff 2px 4px)' : n.color || '#bbb' }} />{n.name}{n.children ? <small>{n.mode === 'fused' ? 'birleşik' : n.mode === 'split' ? 'bölme' : 'grup'}</small> : null}{n.effects?.length ? <small>✦</small> : null}{err ? <small className="err">hata</small> : null}</button>
       <button className="eye" aria-label={n.hidden ? 'Göster' : 'Gizle'} onClick={() => p.hide(n)}>{n.hidden ? <EyeOff /> : <Eye />}</button>
     </div>
     {n.children && <Tree {...p} nodes={n.children} />}

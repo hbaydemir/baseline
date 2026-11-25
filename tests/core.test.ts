@@ -149,3 +149,20 @@ test('yazı yolu yalnız M L C Z içerir', () => {
   for (const s of [4, 7, 12.5]) expect(k.textPath('BASE Ağ', s)).not.toMatch(/NaN/);
   expect(k.build(apply(newDoc(), [{ op: 'add', type: 'text', params: { text: 'BASE', size: 4 } }]).doc)[0].volume).toBeGreaterThan(30);
 });
+test('dizi, aynala, içini boşalt; bölme', () => {
+  const cube = { op: 'add', type: 'box', params: { w: 10, d: 10, h: 10 } } as const;
+  expect(vol([{ ...cube, effects: [{ type: 'array', params: { count: 3, dx: 15 } }] }])).toBeCloseTo(3000, 0);
+  expect(vol([{ ...cube, effects: [{ type: 'array', params: { mode: 'grid', count: 2, rows: 3, dx: 12, dy: 12 } }] }])).toBeCloseTo(6000, 0);
+  expect(vol([{ ...cube, effects: [{ type: 'array', params: { mode: 'circle', count: 6, radius: 30 } }] }])).toBeCloseTo(6000, 0);
+  expect(vol([{ ...cube, effects: [{ type: 'mirror', params: { axis: 'x' } }] }])).toBeCloseTo(2000, 0);
+  expect(vol([{ ...cube, effects: [{ type: 'hollow', params: { t: 1 } }] }])).toBeCloseTo(1000 - 512, 0);
+  expect(vol([{ ...cube, effects: [{ type: 'hollow', params: { t: 1, open: 'open' } }] }])).toBeCloseTo(1000 - 8 * 8 * 9, 0);
+  const d = apply(newDoc(), [{ op: 'add', type: 'box', id: 'b', params: { w: 60, d: 30, h: 40 } }, { op: 'split', id: 'b', params: { joint: 'snap', layout: 'print', tiltX: 30 } }]).doc;
+  const b = k.build(d)[0]; expect(b.error).toBeUndefined();
+  const ms = b.parts.flatMap(p => new k.wasm.Manifold(new k.wasm.Mesh({ numProp: 3, vertProperties: p.positions, triVerts: p.indices })).decompose());
+  expect(ms.length).toBeGreaterThanOrEqual(4); for (let i = 0; i < ms.length; i++) for (let j = 0; j < i; j++) expect(ms[i].intersect(ms[j]).volume()).toBeLessThan(0.01);
+  expect(builtBounds(b).min[2]).toBeCloseTo(0, 3);
+  expect(k.splitInfo(d, d.nodes[0].id).pts.length).toBeGreaterThan(0);
+  const un = apply(d, [{ op: 'ungroup', id: d.nodes[0].id }]).doc; expect(un.nodes[0].type).toBe('box');
+  expect(() => apply(d, [{ op: 'update', id: d.nodes[0].id, params: { joint: 'yok' } }])).toThrow();
+});
