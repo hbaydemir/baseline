@@ -19,7 +19,7 @@ fn read_text(path: PathBuf) -> Result<String, String> {
 
 #[tauri::command]
 fn write_file(path: PathBuf, data: Vec<u8>) -> Result<String, String> {
-    if !["baseline", "3mf", "stl", "obj", "mtl"].contains(&ext(&path).as_str()) { return Err("Dosya türüne izin yok".into()); }
+    if !["baseline", "3mf", "stl", "obj", "mtl", "svg", "pdf", "dxf", "png"].contains(&ext(&path).as_str()) { return Err("Dosya türüne izin yok".into()); }
     let mut tmp = path.clone().into_os_string();
     tmp.push(".tmp");
     fs::write(&tmp, data).map_err(msg)?;

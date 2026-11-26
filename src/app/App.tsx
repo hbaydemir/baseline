@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
+import { PenTool, ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
 import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
@@ -11,6 +11,7 @@ import type { Stroke } from '../core/paint';
 import { Viewport, type Moved, type Surface, type Tool } from './viewport';
 import { Inspector, MultiPanel, DocPanel, PALETTE } from './Inspector';
 import { VectorEditor, loadItems } from './VectorEditor';
+import type { Sketch } from './vectorIO';
 import { Assistant, Library } from './Panels';
 import * as V from './vector';
 import * as os from './platform';
@@ -55,6 +56,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [pop, setPop] = useState<'basic' | 'mech' | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [vec, setVec] = useState<VecJob | null>(null);
+  const [freeVec, setFreeVec] = useState(false);
   const host = useRef<HTMLDivElement>(null), vp = useRef<Viewport | null>(null);
   const known = useRef<string | null>(null), chain = useRef(Promise.resolve());
 
@@ -367,6 +369,7 @@ export function App({ kernel }: { kernel: Kernel }) {
         <D t="Mekanik parçalar" active={pop === 'mech'} on={() => setPop(pop === 'mech' ? null : 'mech')}><Cog /><ChevronUp className="up" /></D>
         <i />
         <D t="Yüzeye çiz: yüze tıkla, yazı / şekil / SVG ekle" active={mode === 'surface'} on={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick /></D>
+        <D t="Vektörel çizim: yüzeyden bağımsız 2B çizim, artboard, PDF / SVG / DXF" active={freeVec} on={() => setFreeVec(true)}><PenTool /></D>
         <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>
         <D t="Ölç (M)" active={mode === 'measure'} on={() => setMode(mode === 'measure' ? 'edit' : 'measure')}><Ruler /></D>
         <i />
@@ -405,6 +408,17 @@ export function App({ kernel }: { kernel: Kernel }) {
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
     {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onClose={() => setVec(null)} />}
+    {freeVec && <VectorEditor kernel={kernel} title="Vektörel çizim" initial={[]} onClose={() => setFreeVec(false)} free={{
+      sketch: (docRef.current.sketch as Sketch | undefined) ?? null,
+      onClose: sk => { if (JSON.stringify(sk) !== JSON.stringify(docRef.current.sketch ?? null) && (sk.items.length || docRef.current.sketch)) commit({ ...docRef.current, sketch: sk }); setFreeVec(false); },
+      onInsert: (svgText, its, sk) => {
+        const b = V.bounds(its); if (!b) return;
+        try {
+          const r = apply({ ...docRef.current, sketch: sk }, [{ op: 'add', type: 'svg', name: 'Vektör çizim', params: { svg: svgText, width: r3(b.x1 - b.x0), h: 2 } }], kernel.bounds);
+          commit(r.doc); setSel(r.created); setFreeVec(false); setMode('edit'); say('Vektör çizim 3B’ye alındı; çizim belgede saklandı, tekrar açıp düzenleyebilirsin');
+        } catch (e) { say((e as Error).message, true); }
+      },
+    }} />}
     {toast && <div className={toast.bad ? 'toast bad' : 'toast'} role="status">{toast.text}</div>}
     <span hidden>{freeX(0)}</span>
   </div>;

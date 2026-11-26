@@ -1,14 +1,35 @@
 // Vektör düzenleyicinin yol modeli: alt yollar, düğümler ve tutamaçlar (mm, y aşağı).
 import type { ManifoldToplevel } from 'manifold-3d';
+import { css } from './color';
 
 export interface Pt { x: number; y: number; ix?: number; iy?: number; ox?: number; oy?: number }
 export interface Sub { pts: Pt[]; closed: boolean }
 /** text: düzenlenebilir yazı (merkez x,y); noktaları elle değişince yola dönüşür. */
-export interface TextMeta { value: string; size: number; font: string; x: number; y: number; rot?: number }
-export interface Item { id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta }
-type V = [number, number];
+export interface TextMeta {
+  value: string; size: number; font: string;
+  /** İlk satırın taban çizgisindeki çapa noktası (hizaya göre sol / orta / sağ). */
+  x: number; y: number; rot?: number;
+  /** Harf aralığı (mm), satır aralığı (çarpan), hiza. */
+  ls?: number; lh?: number; align?: 'left' | 'center' | 'right';
+  /** Yola oturtulmuş yazı: yolun noktaları, baştan uzaklık (mm), alta çevir. */
+  path?: { pts: V[]; offset: number; flip?: boolean };
+}
+export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number }
+export interface Item {
+  id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta;
+  name?: string; hidden?: boolean; locked?: boolean; group?: number;
+  /** Kenar çizgisi: kesik desen (mm), köşe, uç; fixedStroke: ölçeklenince kalınlık değişmesin. */
+  dash?: number[]; join?: 'miter' | 'round' | 'bevel'; cap?: 'butt' | 'round' | 'square'; fixedStroke?: boolean;
+  /** Şeffaflık (0–1) ve gölge: yalnız serbest çizimde. */
+  opacity?: number; shadow?: Shadow;
+  /** PowerClip: bu öğe şu kabın içinde kırpılır. */
+  clip?: number;
+}
+export type V = [number, number];
 let nextId = 1;
 export const newId = () => nextId++;
+/** Kayıttan gelen kimliklerle çakışmasın. */
+export const bumpId = (items: { id: number }[]) => { for (const it of items) nextId = Math.max(nextId, it.id + 1); };
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 
 export function parseD(d: string): Sub[] {
@@ -37,8 +58,9 @@ export function subD(s: Sub) {
 }
 export const itemD = (it: Item) => it.subs.map(subD).join('');
 export function toSvg(items: Item[]): string {
+  items = items.filter(it => !it.hidden);
   const b = bounds(items) ?? { x0: 0, y0: 0, x1: 1, y1: 1 }, pad = 1;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r4(b.x0 - pad)} ${r4(b.y0 - pad)} ${r4(b.x1 - b.x0 + 2 * pad)} ${r4(b.y1 - b.y0 + 2 * pad)}">` + items.map(it => `<path d="${itemD(it)}" fill="${it.fill ?? 'none'}"${it.even ? ' fill-rule="evenodd"' : ''}${it.stroke ? ` stroke="${it.stroke}" stroke-width="${r4(it.sw)}" stroke-linejoin="round" stroke-linecap="round"` : ''}/>`).join('') + '</svg>';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r4(b.x0 - pad)} ${r4(b.y0 - pad)} ${r4(b.x1 - b.x0 + 2 * pad)} ${r4(b.y1 - b.y0 + 2 * pad)}">` + items.map(it => `<path d="${itemD(it)}" fill="${css(it.fill)}"${it.even ? ' fill-rule="evenodd"' : ''}${it.stroke ? ` stroke="${css(it.stroke)}" stroke-width="${r4(it.sw)}" stroke-linejoin="round" stroke-linecap="round"` : ''}/>`).join('') + '</svg>';
 }
 
 // --- geometri ---
@@ -77,21 +99,10 @@ export function joinOutline(d: string): string {
   }
   return out.join('');
 }
-/** Yüzey sınırı ve tasarımı birebir mm ölçüyle SVG yapar (Corel, Illustrator, lazer, UV baskı için). */
-export function exportSvg(items: Item[], guide: string | undefined, what: 'both' | 'surface' | 'design'): string {
-  const useG = !!guide && what !== 'design', useI = what !== 'surface' && items.length > 0;
-  let b = useI ? bounds(items) : null;
-  if (useG) { const g = guide!.match(/-?[\d.]+(?:e-?\d+)?/g)!.map(Number); for (let i = 0; i + 1 < g.length; i += 2) b = b ? { x0: Math.min(b.x0, g[i]), y0: Math.min(b.y0, g[i + 1]), x1: Math.max(b.x1, g[i]), y1: Math.max(b.y1, g[i + 1]) } : { x0: g[i], y0: g[i + 1], x1: g[i], y1: g[i + 1] }; }
-  b ??= { x0: 0, y0: 0, x1: 1, y1: 1 };
-  const w = r4(b.x1 - b.x0), h = r4(b.y1 - b.y0);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="${r4(b.x0)} ${r4(b.y0)} ${w} ${h}">\n`
-    + (useG ? `<g id="yuzey"><path d="${joinOutline(guide!)}" fill-rule="evenodd" fill="none" stroke="#ff0000" stroke-width="0.1"/></g>\n` : '')
-    + (useI ? `<g id="tasarim">${items.map(it => `<path d="${itemD(it)}" fill="${it.fill ?? 'none'}"${it.even ? ' fill-rule="evenodd"' : ''}${it.stroke ? ` stroke="${it.stroke}" stroke-width="${r4(it.sw)}" stroke-linejoin="round" stroke-linecap="round"` : ''}/>`).join('')}</g>\n` : '')
-    + '</svg>\n';
-}
 export function mapItem(it: Item, f: (x: number, y: number) => V, swK = 1): Item {
-  const t = it.text && (() => { const [x, y] = f(it.text!.x, it.text!.y); return { ...it.text!, x, y, size: it.text!.size * swK }; })();
-  return { ...it, ...(t ? { text: t } : {}), sw: it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
+  const t = it.text && (() => { const [x, y] = f(it.text!.x, it.text!.y); return { ...it.text!, x, y, size: it.text!.size * swK, ls: (it.text!.ls ?? 0) * swK }; })();
+  if (t?.path) t.path = { ...t.path, pts: t.path.pts.map(([x, y]) => f(x, y)) };
+  return { ...it, ...(t ? { text: t } : {}), sw: it.fixedStroke ? it.sw : it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
 }
 /** Bezier'i t'de ikiye böler. */
 function split(p: V[], t: number): [V[], V[]] {

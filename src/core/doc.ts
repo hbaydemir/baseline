@@ -13,7 +13,7 @@ export interface Node {
   guide?: string;
 }
 export interface EffectUse { type: string; params: Record<string, Num>; off?: boolean }
-export interface Doc { format: 'baseline'; version: 1; params: Record<string, Num>; nodes: Node[]; assets?: Record<string, string> }
+export interface Doc { format: 'baseline'; version: 1; params: Record<string, Num>; nodes: Node[]; assets?: Record<string, string>; /** Serbest vektör çizimi (düzenleyicinin verisi). */ sketch?: unknown }
 export const newDoc = (): Doc => ({ format: 'baseline', version: 1, params: { tolerans: 0.2 }, nodes: [] });
 
 interface Place { pos?: V3; rot?: V3; scale?: V3; color?: string; hole?: boolean; hidden?: boolean; name?: string; params?: Record<string, Num>; effects?: EffectUse[]; paint?: Stroke[]; guide?: string }

@@ -281,6 +281,22 @@ export class Kernel {
     const F = this.fontOf(font), p = F.getPath(text, 0, 0, size / 0.62), b = p.getBoundingBox(), d = pathD(F.getPath(text, -(b.x1 + b.x2) / 2, -(b.y1 + b.y2) / 2, size / 0.62));
     return plainPaths(`<svg><path d="${d}"/></svg>`).map(x => x.d).join(''); // yalnız M L C Z
   }
+  private glyphCache = new Map<string, { d: string; adv: number }>();
+  /** Harf harf yollar (mm, y aşağı, taban çizgisi 0) ve ilerleme; vektör düzenleyicideki yazı dizgisi için. */
+  glyphs(text: string, size: number, font = ''): { d: string; adv: number }[] {
+    const F = this.fontOf(font), fs = size / 0.62, sc = fs / F.unitsPerEm, chars = [...text], stamp = `${font}|${fs}|`;
+    if (this.glyphCache.size > 4000) this.glyphCache.clear();
+    return chars.map((ch, i) => {
+      let g = this.glyphCache.get(stamp + ch);
+      if (!g) {
+        const gl = F.charToGlyph(ch), raw = pathD(gl.getPath(0, 0, fs));
+        g = { d: /\d/.test(raw) ? plainPaths(`<svg><path d="${raw}"/></svg>`).map(x => x.d).join('') : '', adv: (gl.advanceWidth ?? 0) * sc };
+        this.glyphCache.set(stamp + ch, g);
+      }
+      const next = chars[i + 1], kern = next && next !== '\n' ? F.getKerningValue(F.charToGlyph(ch), F.charToGlyph(next)) * sc : 0;
+      return { d: g.d, adv: g.adv + kern };
+    });
+  }
   private textCS(text: string, size: number, font = ''): CrossSection {
     if (!text.trim()) throw new Error('Yazı boş');
     if (text.length > 200) throw new Error('Yazı çok uzun');
