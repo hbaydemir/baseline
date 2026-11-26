@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowDown, ArrowUp, Brush, ChevronDown, Eye, EyeOff, Group, Layers, Lock, LockOpen, Move3d, Palette, PenTool, Ruler, Scissors, Shapes, Sparkles, SquareDashed, Trash2, Ungroup, Wand2 } from 'lucide-react';
 import type { Command, Node, EffectUse, Doc } from '../core/doc';
 import { num, type Num, type Vars } from '../core/expr';
@@ -20,17 +20,31 @@ export function Card({ id, icon, title, hint, children, open: start = true, extr
   </section>;
 }
 /** Sayı ya da "=formül" alanı. */
-export function NumBox({ value, vars, onCommit, label, unit }: { value: Num; vars: Vars; onCommit(v: Num): boolean; label: string; unit?: string }) {
-  const show = String(value), [t, setT] = useState(show);
-  useEffect(() => setT(show), [show]);
+/** Sayı ya da "=formül" alanı. Oklar / ↑↓: adım (Shift ×10, Alt ×0,1); formülde kapalı. */
+export function NumBox({ value, vars, onCommit, label, unit, min, max, int }: { value: Num; vars: Vars; onCommit(v: Num): boolean; label: string; unit?: string; min?: number; max?: number; int?: boolean }) {
+  const show = String(value), [t, setT] = useState(show), cur = useRef(value), rep = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { setT(show); cur.current = value; }, [show]); // eslint-disable-line react-hooks/exhaustive-deps
   const done = () => {
     const s = t.trim().replace(/(\d),(\d)/g, '$1.$2'); if (s === show) return setT(show);
     if (!s) return setT(show);
     const v: Num = /^-?(\d+\.?\d*|\.\d+)$/.test(s) ? Number(s) : s.startsWith('=') ? s : '=' + s;
     if (!onCommit(v)) setT(show);
   };
-  let res = ''; if (typeof value === 'string') try { res = `= ${r3(num(value, vars))}`; } catch { res = 'hata'; }
-  return <label className="field"><span>{label}{res ? <em>{res}</em> : unit ? <i>{unit}</i> : null}</span><input value={t} onChange={e => setT(e.target.value)} onBlur={done} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setT(show); }} /></label>;
+  const formula = typeof value === 'string';
+  const step = (dir: number, e: { shiftKey: boolean; altKey: boolean }) => {
+    const v = typeof cur.current === 'number' ? cur.current : Number(t.replace(',', '.'));
+    if (!Number.isFinite(v)) return;
+    let st = int ? 1 : (!Number.isInteger(v) || Math.abs(v) < 5) ? 0.1 : 1; if (e.shiftKey) st *= 10; if (e.altKey && !int) st /= 10;
+    let x = Math.round((v + dir * st) / st) * st; x = Math.round(x * 1e4) / 1e4; if (min !== undefined) x = Math.max(min, x); if (max !== undefined) x = Math.min(max, x);
+    if (x === v) return; cur.current = x; setT(String(x)); onCommit(x);
+  };
+  const hold = (dir: number, e: React.PointerEvent) => { e.preventDefault(); const mods = { shiftKey: e.shiftKey, altKey: e.altKey }; step(dir, mods); const go = (d: number) => { rep.current = setTimeout(() => { step(dir, mods); go(70); }, d); }; go(380); };
+  const stop = () => { if (rep.current) clearTimeout(rep.current); rep.current = null; };
+  useEffect(() => stop, []);
+  let res = ''; if (formula) try { res = `= ${r3(num(value, vars))}`; } catch { res = 'hata'; }
+  return <label className="field"><span>{label}{res ? <em>{res}</em> : unit ? <i>{unit}</i> : null}</span>
+    <span className="num"><input value={t} onChange={e => setT(e.target.value)} onBlur={done} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setT(show); if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !formula) { e.preventDefault(); step(e.key === 'ArrowUp' ? 1 : -1, e); } }} />
+      {!formula && <span className="spin"><button tabIndex={-1} aria-label={`${label} artır`} onPointerDown={e => hold(1, e)} onPointerUp={stop} onPointerLeave={stop}>▲</button><button tabIndex={-1} aria-label={`${label} azalt`} onPointerDown={e => hold(-1, e)} onPointerUp={stop} onPointerLeave={stop}>▼</button></span>}</span></label>;
 }
 export function TextBox({ value, onCommit, label }: { value: string; onCommit(v: string): void; label: string }) {
   const [t, setT] = useState(value); useEffect(() => setT(value), [value]);
@@ -43,7 +57,7 @@ function Fields({ fields, values, vars, set }: { fields: Field[]; values: Record
     if (f.kind === 'font') return <FontPicker key={f.key} label={f.label} value={String(v)} onChange={x => set(f.key, x)} />;
     if (f.kind === 'text') return <TextBox key={f.key} label={f.label} value={String(v)} onCommit={x => set(f.key, x)} />;
     if (f.kind === 'select') return <label className="field" key={f.key}><span>{f.label}</span><select value={String(v)} onChange={e => set(f.key, e.target.value)}>{f.options!.map(([a, b]) => <option key={a} value={a}>{b}</option>)}</select></label>;
-    return <NumBox key={f.key} label={f.label} value={v} vars={vars} onCommit={x => set(f.key, x)} />;
+    return <NumBox key={f.key} label={f.label} value={v} vars={vars} min={f.min} max={f.max} int={f.kind === 'int'} onCommit={x => set(f.key, x)} />;
   })}</>;
 }
 

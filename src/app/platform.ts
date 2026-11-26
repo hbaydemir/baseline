@@ -68,6 +68,13 @@ export async function readFont(key: string): Promise<ArrayBuffer | null> {
   return f ? invoke<ArrayBuffer>('read_font', { path: f.path }) : null;
 }
 
+/** Fontu motora yükler (zaten yüklüyse bir şey yapmaz). Yoksa false. */
+export async function ensureFont(k: { hasFont(key: string): boolean; addFont(key: string, d: ArrayBuffer): void }, key: string): Promise<boolean> {
+  if (!key || k.hasFont(key)) return true;
+  const d = await readFont(key); if (!d) return false;
+  k.addFont(key, d); return true;
+}
+
 // --- şablonlar ve tasarım havuzu ---
 export interface LibFile { path: string; size: number; modified: number }
 const LS = 'baseline-library';

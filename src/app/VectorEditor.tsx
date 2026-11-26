@@ -45,8 +45,10 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     itemsRef.current = next; setItemsState(next);
   };
   const undo = (from: typeof past, to: typeof past) => { const p = from.current.pop(); if (!p) return; to.current.push(itemsRef.current); itemsRef.current = p; setItemsState(p); setNodes([]); setSegs([]); };
+  /** Çizim alanı: yüzeyin sınırı varsa o, yoksa başlangıç noktası çevresi. */
+  const area = useMemo(() => { const g = guide?.match(/-?[\d.]+(?:e-?\d+)?/g)?.map(Number); return g && g.length > 3 ? { x0: Math.min(...g.filter((_, i) => i % 2 === 0)), x1: Math.max(...g.filter((_, i) => i % 2 === 0)), y0: Math.min(...g.filter((_, i) => i % 2)), y1: Math.max(...g.filter((_, i) => i % 2)) } : null; }, [guide]);
   const fit = () => {
-    const g = guide?.match(/-?[\d.]+(?:e-?\d+)?/g)?.map(Number), gb = g && g.length > 3 ? { x0: Math.min(...g.filter((_, i) => i % 2 === 0)), x1: Math.max(...g.filter((_, i) => i % 2 === 0)), y0: Math.min(...g.filter((_, i) => i % 2)), y1: Math.max(...g.filter((_, i) => i % 2)) } : null;
+    const gb = area;
     const b = V.bounds(itemsRef.current) ?? gb ?? { x0: -30, y0: -30, x1: 30, y1: 30 }, w = Math.max(10, b.x1 - b.x0), h = Math.max(10, b.y1 - b.y0);
     const s = Math.min(size.w / (w * 1.3), size.h / (h * 1.3)); setView({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, s });
   };
@@ -60,7 +62,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
 
   const selItems = items.filter(it => sel.includes(it.id));
   const makeText = (t: V.TextMeta, fillC: string): Omit<V.Item, 'id'> => ({ subs: V.parseD(kernel.textPath(t.value, t.size, t.font)).map(s => ({ ...s, pts: s.pts.map(p => ({ ...p, x: p.x + t.x, y: p.y + t.y, ...(p.ix !== undefined ? { ix: p.ix + t.x, iy: p.iy! + t.y } : {}), ...(p.ox !== undefined ? { ox: p.ox + t.x, oy: p.oy! + t.y } : {}) })) })), fill: fillC, stroke: null, sw: 1, even: false, text: t });
-  const editText = (it: V.Item, patch: Partial<V.TextMeta>) => { const t = { ...it.text!, ...patch }; if (!t.value.trim() || !(t.size > 0)) return; try { const n = makeText(t, it.fill ?? '#222222'); setItems(a => a.map(x => x.id === it.id ? { ...x, ...n, fill: x.fill, stroke: x.stroke, sw: x.sw } : x)); } catch (e) { alert((e as Error).message); } };
+  const editText = async (it: V.Item, patch: Partial<V.TextMeta>) => { const t = { ...it.text!, ...patch }; if (!t.value.trim() || !(t.size > 0)) return; try { if (!(await os.ensureFont(kernel, t.font))) alert('Bu yazı tipi okunamadı; Baloo kullanılıyor'); const n = makeText(t, it.fill ?? '#222222'); setItems(a => a.map(x => x.id === it.id ? { ...x, ...n, fill: x.fill, stroke: x.stroke, sw: x.sw } : x)); } catch (e) { alert((e as Error).message); } };
   const textItem = selItems.length === 1 && selItems[0].text ? selItems[0] : null;
   const sb = V.bounds(selItems);
   const style = (it: Partial<V.Item>) => setItems(a => a.map(x => sel.includes(x.id) ? { ...x, ...it } : x));
@@ -111,7 +113,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     }
     if (tool === 'draw') { setInk([[x, y]]); drag.current = (mx, my) => setInk(k => k && [...k, [mx, my]]); return; }
     if (tool === 'text') {
-      try { add(makeText({ value: text || 'Yazı', size: textSize, font, x, y }, fill ?? '#222222')); setTool('select'); setTimeout(() => (document.querySelector('.vec-side .tinput') as HTMLInputElement | null)?.select(), 50); } catch (er) { alert((er as Error).message); }
+      void (async () => { try { await os.ensureFont(kernel, font); add(makeText({ value: text || 'Yazı', size: textSize, font, x, y }, fill ?? '#222222')); setTool('select'); setTimeout(() => (document.querySelector('.vec-side .tinput') as HTMLInputElement | null)?.select(), 50); } catch (er) { alert((er as Error).message); } })();
       return;
     }
     const a: [number, number] = [snap(x, e), snap(y, e)]; setDraft({ a, b: a });
@@ -266,7 +268,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       </section>}
       {sb && <section className="card"><header><b>Konum ve boyut (mm)</b></header>
         <div className="grid2">{([['X', sb.x0], ['Y', sb.y0], ['G', sb.x1 - sb.x0], ['Y.', sb.y1 - sb.y0]] as const).map(([l, v], k) => <label className="field" key={l}><span>{['Sol', 'Üst', 'Genişlik', 'Yükseklik'][k]}</span><input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0; if (k === 0) transform((a, b) => [a + x - sb.x0, b]); if (k === 1) transform((a, b) => [a, b + x - sb.y0]); if (k === 2 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / w, sb.y0 + (b - sb.y0) * x / w], x / w); if (k === 3 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / h, sb.y0 + (b - sb.y0) * x / h], x / h); }} /></label>)}</div>
-        <button className="wide" onClick={() => transform((a, b) => [a - (sb.x0 + sb.x1) / 2, b - (sb.y0 + sb.y1) / 2])}>Ortaya al</button>
+        <button className="wide" onClick={() => { const cx = area ? (area.x0 + area.x1) / 2 : 0, cy = area ? (area.y0 + area.y1) / 2 : 0; transform((a, b) => [a - (sb.x0 + sb.x1) / 2 + cx, b - (sb.y0 + sb.y1) / 2 + cy]); setView(v => ({ ...v, x: cx, y: cy })); }}>{area ? 'Yüzeyin ortasına al' : 'Ortaya al'}</button>
       </section>}
       {textItem ? <section className="card"><header><b>Yazı</b></header>
         <label className="field"><span>Metin</span><input className="tinput" value={textItem.text!.value} onChange={e => editText(textItem, { value: e.target.value })} /></label>

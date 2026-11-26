@@ -139,3 +139,9 @@ dialog.big{width:min(900px,94vw)}dialog.big .box{max-height:86vh;overflow:auto}
 [data-theme=dark] .selbox rect,[data-theme=dark] .selbox circle,[data-theme=dark] .nd,[data-theme=dark] .hd{fill:#15181c}
 [data-theme=dark] .logo-prev{border-color:#39414b}
 [data-theme=dark] .dock{background:#262b33;box-shadow:0 0 0 1px #3a424d,0 8px 28px #0008}
+.field .num{position:relative;display:block;color:inherit}.field .num input{padding-right:22px}
+.spin{position:absolute;right:1px;top:1px;bottom:1px;display:flex;flex-direction:column;width:18px}
+.spin button{flex:1;padding:0;border:0;border-left:1px solid #d5dde5;border-radius:0;font-size:7px;line-height:1;color:#7b8a99;background:#f7f9fb}
+.spin button:first-child{border-radius:0 5px 0 0;border-bottom:1px solid #d5dde5}.spin button:last-child{border-radius:0 0 5px 0}
+.spin button:hover{color:#1677ff;background:#e3efff}
+[data-theme=dark] .spin button{background:#22272e;border-color:#39414b;color:#9aa6b2}[data-theme=dark] .spin button:hover{background:#173156;color:#9cc2ff}

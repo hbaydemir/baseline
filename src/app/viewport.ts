@@ -86,7 +86,7 @@ export class Viewport {
     el.addEventListener('pointerdown', e => this.down(e));
     el.addEventListener('pointermove', e => this.move(e));
     el.addEventListener('pointerup', e => this.up(e));
-    el.addEventListener('pointerleave', () => { this.cursor.visible = false; this.dirty = true; });
+    el.addEventListener('pointerleave', () => { this.cursor.visible = false; this.highlight(null); this.dirty = true; });
     this.orbit = new OrbitControls(this.camera, el);
     this.orbit.target.set(0, 0, 10); this.orbit.update();
     this.orbit.addEventListener('change', () => { this.dirty = true; });
@@ -318,6 +318,7 @@ export class Viewport {
   }
   private move(e: PointerEvent) {
     if (this.mode === 'measure') { this.hover3 = this.snap(e); this.dirty = true; return; }
+    if (this.mode === 'surface') { this.highlight(e); return; }
     if (this.mode === 'paint') {
       const h = this.hitObj(e);
       this.cursor.visible = !!h && this.brush > 0;
@@ -386,12 +387,30 @@ export class Viewport {
   }
 
   // --- yüzey ---
-  private surface(h: THREE.Intersection) {
-    const m = h.object as THREE.Mesh, p = m.userData.part as Part, t = h.faceIndex!;
-    // aynı düzlemdeki komşu üçgenler; az çıkarsa eğri yüzey
+  /** Tıklanan üçgenin yüzeyi: aynı düzlemdeki komşular; az çıkarsa eğri yüzey. */
+  private region(p: Part, t: number) {
     let tris = flood(p.positions, p.indices, t, Math.cos(1 / DEG), Math.cos(1 / DEG)), flat = true;
     const area = (ts: number[]) => ts.reduce((s, i) => { const a = v3(p.positions.subarray(p.indices[i * 3] * 3)), b = v3(p.positions.subarray(p.indices[i * 3 + 1] * 3)), c = v3(p.positions.subarray(p.indices[i * 3 + 2] * 3)); return s + b.sub(a).cross(c.sub(a)).length() / 2; }, 0);
     if (tris.length < 3 && area(tris) < 30) { tris = flood(p.positions, p.indices, t, Math.cos(25 / DEG), Math.cos(70 / DEG)); flat = false; }
+    return { tris, flat };
+  }
+  private hl: { mesh: THREE.Mesh; tris: Set<number>; obj: THREE.Mesh } | null = null;
+  /** Yüzeye çizde imlecin altındaki yüzeyi vurgula. */
+  private highlight(e: PointerEvent | null) {
+    const h = e && this.hitObj(e), m = h?.object as THREE.Mesh | undefined;
+    if (!h || !m || h.faceIndex == null) { if (this.hl) { this.hl.obj.removeFromParent(); this.hl.obj.geometry.dispose(); this.hl = null; this.dirty = true; } return; }
+    if (this.hl && this.hl.mesh === m && this.hl.tris.has(h.faceIndex)) return;
+    if (this.hl) { this.hl.obj.removeFromParent(); this.hl.obj.geometry.dispose(); }
+    const p = m.userData.part as Part, { tris } = this.region(p, h.faceIndex), pos = new Float32Array(tris.length * 9);
+    tris.forEach((t, i) => { for (let q = 0; q < 3; q++) pos.set(p.positions.subarray(p.indices[t * 3 + q] * 3, p.indices[t * 3 + q] * 3 + 3), i * 9 + q * 3); });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const obj = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: '#ffb020', transparent: true, opacity: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: false, side: THREE.DoubleSide }));
+    obj.raycast = () => {}; m.parent!.add(obj);
+    this.hl = { mesh: m, tris: new Set(tris), obj }; this.dirty = true;
+  }
+  private surface(h: THREE.Intersection) {
+    const m = h.object as THREE.Mesh, p = m.userData.part as Part, t = h.faceIndex!;
+    const { tris, flat } = this.region(p, t);
     m.updateMatrixWorld(true);
     const W = (i: number) => v3(p.positions.subarray(i * 3, i * 3 + 3)).applyMatrix4(m.matrixWorld);
     const n = h.face!.normal.clone().transformDirection(m.matrixWorld).normalize();
@@ -412,7 +431,7 @@ export class Viewport {
     const O = v3(s.origin), X = v3(s.x), Y = v3(s.y), N = v3(s.n), ray = new THREE.Raycaster(), meshes = o.children.filter(c => c.userData.part && !c.userData.hole);
     return pts.map(([a, b]) => { const from = O.clone().addScaledVector(X, a).addScaledVector(Y, b).addScaledVector(N, 500); ray.set(from, N.clone().negate()); const h = ray.intersectObjects(meshes, false)[0]; return h ? h.point.clone().sub(O).dot(N) : NaN; });
   }
-  setMode(m: Mode) { if (m !== 'measure') this.clearMeasures(); this.mode = m; this.cursor.visible = false; this.marks.clear(); this.renderer.domElement.style.cursor = m === 'edit' ? '' : 'crosshair'; this.dirty = true; }
+  setMode(m: Mode) { if (m !== 'measure') this.clearMeasures(); if (m !== 'surface') this.highlight(null); this.mode = m; this.cursor.visible = false; this.marks.clear(); this.renderer.domElement.style.cursor = m === 'edit' ? '' : 'crosshair'; this.dirty = true; }
 }
 const at = (m: THREE.Object3D, p: THREE.Vector3) => { m.position.copy(p); return m; };
 const f1 = (x: number) => (Math.round(x * 10) / 10).toString(), f3 = (x: number) => (Math.round(x * 1000) / 1000).toString();
