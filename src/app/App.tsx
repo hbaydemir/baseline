@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownToLine, ChevronUp, Scissors, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
+import { ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
 import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
@@ -40,6 +40,12 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [decal, setDecal] = useState<Decal>({ kind: 'raise', depth: 1 });
   const [brush, setBrush] = useState(0), [paintColor, setPaintColor] = useState('#e5484d');
   const [overhang, setOverhang] = useState(false);
+  const [theme, setThemeState] = useState<'light' | 'dark' | 'system'>(() => { try { return (localStorage.getItem('baseline-theme') as 'light' | 'dark') || 'system'; } catch { return 'system'; } });
+  const [sysDark, setSysDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => { const m = matchMedia('(prefers-color-scheme: dark)'), f = () => setSysDark(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
+  const dark = theme === 'dark' || (theme === 'system' && sysDark);
+  const setTheme = (t: 'light' | 'dark') => { setThemeState(t); try { localStorage.setItem('baseline-theme', t); } catch { /* yok */ } };
+  useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; vp.current?.setTheme(dark); }, [dark]);
   const [pop, setPop] = useState<'basic' | 'mech' | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [vec, setVec] = useState<VecJob | null>(null);
@@ -189,7 +195,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       select: (id, add) => setSel(s => !id ? (add ? s : []) : add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id]),
       moved: onMoved, surface: s => handlers.current.surface(s), paint: p => handlers.current.paint(p),
     });
-    vp.current = v; return () => { v.dispose(); vp.current = null; };
+    vp.current = v; v.setTheme(document.documentElement.dataset.theme === 'dark'); return () => { v.dispose(); vp.current = null; };
   }, [onMoved]);
   useEffect(() => { const v = vp.current; if (!v) return; v.tool = tool; v.magnet = magnet; v.symmetric = symmetric; v.uniform = uniform; v.brush = brush; v.setMode(mode); if (v.overhang !== overhang) v.setOverhang(overhang); v.update(built, mode === 'edit' ? sel : []); }, [built, sel, tool, magnet, symmetric, uniform, mode, brush, overhang]);
 
@@ -259,6 +265,27 @@ export function App({ kernel }: { kernel: Kernel }) {
     });
   };
 
+  // --- seç, kopyala, yapıştır ---
+  const clip = useRef<Doc | null>(null), pasteN = useRef(0);
+  const selectAll = () => { setSel(docRef.current.nodes.filter(n => !n.hidden).map(n => n.id)); setMode('edit'); };
+  const copySel = (cutToo: boolean) => {
+    const d = docRef.current, ids = sel.filter(id => d.nodes.some(n => n.id === id)); if (!ids.length) return;
+    const part: Doc = { ...d, nodes: d.nodes.filter(n => ids.includes(n.id)) }; clip.current = structuredClone(part); pasteN.current = 0;
+    navigator.clipboard?.writeText(serialize(part)).catch(() => {});
+    if (cutToo) { if (run([{ op: 'remove', ids }])) setSel([]); say(`${ids.length} nesne kesildi`); } else say(`${ids.length} nesne kopyalandı`);
+  };
+  const paste = async () => {
+    let d = clip.current;
+    try {
+      const t = (await navigator.clipboard?.readText())?.trim();
+      if (t && /^<svg[\s>]/i.test(t.replace(/^<\?xml[^>]*>\s*/i, ''))) { addShape('svg', { params: { svg: t }, name: 'Yapıştırılan SVG' }); return; }
+      if (t && /"format"\s*:\s*"baseline"/.test(t)) d = parseDoc(t);
+    } catch { /* panoya erişim yoksa iç pano */ }
+    if (!d) return;
+    pasteN.current++; const off = 10 * pasteN.current;
+    try { const r = apply(docRef.current, [{ op: 'insert', doc: d }], kernel.bounds); const moved = apply(r.doc, r.created.map(id => ({ op: 'move', id, d: [off, off, 0] }) as Command)); commit(moved.doc); setSel(r.created); }
+    catch (e) { say((e as Error).message, true); }
+  };
   const remove = () => { if (sel.length && run([{ op: 'remove', ids: sel.filter(id => !sel.some(o => o !== id && inside(doc, o, id))) }])) setSel([]); };
   const group = (mode: 'linked' | 'fused') => run([{ op: 'group', ids: sel, mode }], true);
   const importPick = async () => importFiles(await os.pickBytes('.stl,.obj,.3mf,.svg,.baseline'));
@@ -266,7 +293,8 @@ export function App({ kernel }: { kernel: Kernel }) {
   keys.current = e => {
     if (vec || (e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
     const k = e.key.toLowerCase(), c = e.ctrlKey || e.metaKey;
-    const act = c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
+    const act = c && k === 'a' ? selectAll : c && k === 'c' ? () => copySel(false) : c && k === 'x' ? () => copySel(true) : c && k === 'v' ? paste
+      : c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
       : c && k === 'd' ? () => sel.length && run(sel.map(id => ({ op: 'duplicate', id }) as Command), true) : c && k === 'g' ? () => sel.length > 1 && group('linked')
       : k === 'escape' ? () => { setMode('edit'); setPop(null); } : !c && k === 'm' ? () => setMode(mode === 'measure' ? 'edit' : 'measure')
       : k === 'delete' || k === 'backspace' ? remove : !c && k === 'w' ? () => setTool('translate') : !c && k === 'e' ? () => setTool('rotate') : !c && k === 'r' ? () => setTool('scale') : !c && k === 'f' ? () => vp.current?.fit() : null;
@@ -290,23 +318,11 @@ export function App({ kernel }: { kernel: Kernel }) {
       <B t="Yeni" on={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 /></B>
       <B t="Aç (Ctrl+O)" on={openDoc}><FolderOpen /></B>
       <B t="Kaydet (Ctrl+S)" on={saveDoc}><Save /></B>
-      <i />
-      <B t="Geri al (Ctrl+Z)" off={!past.current.length} on={() => step(past, future)}><Undo2 /></B>
-      <B t="Yinele (Ctrl+Y)" off={!future.current.length} on={() => step(future, past)}><Redo2 /></B>
-      <i />
-      <B t="Mıknatıs: kenara ve ortaya yapış" active={magnet} on={() => setMagnet(!magnet)}><Magnet /></B>
-      <B t="Böl (kesim düzlemi ve kilitler)" off={!canSplit} on={() => node && startSplit(node)}><Scissors /></B>
-      <B t="Tablaya oturt" off={!sel.length || !top} on={() => run(sel.map(id => ({ op: 'place', id, on: 'plate' }) as Command))}><ArrowDownToLine /></B>
-      {tool === 'scale' && mode === 'edit' && <>
-        <button className={symmetric ? 'chip on' : 'chip'} title="Açık: iki yöne eşit büyür (Y+ ve Y−). Kapalı: yalnız tuttuğun yöne büyür." aria-pressed={symmetric} onClick={() => setSymmetric(!symmetric)}><Columns2 />Simetrik</button>
-        <button className={uniform ? 'chip on' : 'chip'} title="Açık: X, Y, Z aynı oranda büyür. Kapalı: serbest." aria-pressed={uniform} onClick={() => setUniform(!uniform)}><Lock />Oranlı</button>
-      </>}
-      <i />
-      <B t="Çoğalt (Ctrl+D)" off={!sel.length} on={() => run(sel.map(id => ({ op: 'duplicate', id })), true)}><Copy /></B>
-      <B t="Sil (Delete)" off={!sel.length} on={remove}><Trash2 /></B>
       <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
       <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
       <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>
+      <B t={dark ? 'Açık tema' : 'Koyu tema'} on={() => setTheme(dark ? 'light' : 'dark')}>{dark ? <Sun /> : <Moon />}</B>
+      <button className="tb" title="STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin." onClick={importPick}><FileUp />İçe aktar</button>
       <button className="tb primary" disabled={!doc.nodes.length} onClick={() => setDialog('export')}><Download />Dışa aktar</button>
     </header>
     <aside className="left">
@@ -323,13 +339,25 @@ export function App({ kernel }: { kernel: Kernel }) {
         {pop && <div className="pop" role="dialog">
           {pop === 'basic' || pop === 'mech' ? <><b>{pop === 'basic' ? 'Şekiller' : 'Mekanik parçalar'}</b><div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === pop).map(([t, s]) => <button key={t} title={s.label} onClick={() => { addShape(t); setPop(null); }}>{ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div></> : null}
         </div>}
+        <D t="Geri al (Ctrl+Z)" off={!past.current.length} on={() => step(past, future)}><Undo2 /></D>
+        <D t="Yinele (Ctrl+Y)" off={!future.current.length} on={() => step(future, past)}><Redo2 /></D>
+        <i />
         <D t="Taşı (W) — gövdeden tutunca yalnız X–Y" active={mode === 'edit' && tool === 'translate'} on={() => { setMode('edit'); setTool('translate'); }}><Move3d /></D>
         <D t="Döndür (E)" active={mode === 'edit' && tool === 'rotate'} on={() => { setMode('edit'); setTool('rotate'); }}><Rotate3d /></D>
         <D t="Ölçekle (R)" active={mode === 'edit' && tool === 'scale'} on={() => { setMode('edit'); setTool('scale'); }}><Scale3d /></D>
+        {tool === 'scale' && mode === 'edit' && <>
+          <button className={symmetric ? 'dchip on' : 'dchip'} data-tip="Açık: iki yöne eşit büyür. Kapalı: yalnız tuttuğun yöne." aria-pressed={symmetric} onClick={() => setSymmetric(!symmetric)}><Columns2 />Simetrik</button>
+          <button className={uniform ? 'dchip on' : 'dchip'} data-tip="Açık: X, Y, Z aynı oranda büyür" aria-pressed={uniform} onClick={() => setUniform(!uniform)}><Lock />Oranlı</button>
+        </>}
+        <D t="Mıknatıs: kenara ve ortaya yapış" active={magnet} on={() => setMagnet(!magnet)}><Magnet /></D>
+        <i />
+        <D t="Böl (kesim düzlemi ve kilitler)" off={!canSplit} on={() => node && startSplit(node)}><Scissors /></D>
+        <D t="Tablaya oturt" off={!sel.length || !top} on={() => run(sel.map(id => ({ op: 'place', id, on: 'plate' }) as Command))}><ArrowDownToLine /></D>
+        <D t="Çoğalt (Ctrl+D)" off={!sel.length} on={() => run(sel.map(id => ({ op: 'duplicate', id })), true)}><Copy /></D>
+        <D t="Sil (Delete)" off={!sel.length} on={remove}><Trash2 /></D>
         <i />
         <D t="Şekiller" active={pop === 'basic'} on={() => setPop(pop === 'basic' ? null : 'basic')}><Shapes /><ChevronUp className="up" /></D>
         <D t="Mekanik parçalar" active={pop === 'mech'} on={() => setPop(pop === 'mech' ? null : 'mech')}><Cog /><ChevronUp className="up" /></D>
-        <D t="İçe aktar: STL, OBJ, 3MF, SVG (Ctrl+I)" on={importPick}><FileUp /></D>
         <i />
         <D t="Yüzeye çiz: yüze tıkla, yazı / şekil / SVG ekle" active={mode === 'surface'} on={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick /></D>
         <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>

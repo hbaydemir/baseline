@@ -101,3 +101,41 @@ dialog.big{width:min(900px,94vw)}dialog.big .box{max-height:86vh;overflow:auto}
 .banner{bottom:auto}
 .toast{bottom:78px}
 .brand .grid3 input[type=color]{height:34px;padding:2px}.logo-prev{max-width:200px;max-height:120px;margin:8px 0;padding:8px;border:1px dashed #d5dde5;border-radius:8px}.logo-prev svg{max-width:100%;max-height:100px;height:auto}
+/* seçim: arayüz yazıları sürüklemeyle seçilmesin */
+.app{user-select:none}.app input,.app textarea,.app code,.app pre,.app .list p,.app dd{user-select:text}
+.dchip{display:inline-flex;align-items:center;gap:4px;border:1px solid #3a414b;background:none;color:#d6dbe1;border-radius:999px;padding:3px 8px;font-size:12px;margin:0 2px;white-space:nowrap;position:relative}
+.dchip svg{width:13px;height:13px}.dchip.on{background:#1677ff;border-color:#1677ff;color:#fff}.dchip:hover:not(:disabled){border-color:#5a6573}
+.dchip[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);background:#1c2733;color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;pointer-events:none}
+.db:disabled{opacity:.35}
+
+/* --- koyu tema --- */
+:root[data-theme=dark]{color-scheme:dark}
+[data-theme=dark] body{background:#15181c;color:#e3e7ec}
+[data-theme=dark] button{background:#22272e;border-color:#39414b;color:#e3e7ec}
+[data-theme=dark] button:hover:not(:disabled){border-color:#4c8dff}
+[data-theme=dark] header,[data-theme=dark] aside{background:#1c2026;border-color:#2c333c}
+[data-theme=dark] header>i{background:#2c333c}
+[data-theme=dark] .ib{background:none;border-color:transparent}[data-theme=dark] .ib.active,[data-theme=dark] .tb.active,[data-theme=dark] .chip.on,[data-theme=dark] .seg .on,[data-theme=dark] .grid2 .on{background:#173156;border-color:#4c8dff;color:#9cc2ff}
+[data-theme=dark] .primary{background:#1677ff;border-color:#1677ff;color:#fff}
+[data-theme=dark] .right{background:#171a1f}
+[data-theme=dark] .card,[data-theme=dark] .ins-head{background:#1f242b;border-color:#2e353e}
+[data-theme=dark] .card-h{background:#232931}[data-theme=dark] .card:not(.shut) .card-h{border-bottom-color:#2e353e}[data-theme=dark] .card-h b{color:#e3e7ec}
+[data-theme=dark] .ci{background:#173156;color:#9cc2ff}
+[data-theme=dark] .field input,[data-theme=dark] .field select,[data-theme=dark] input,[data-theme=dark] select,[data-theme=dark] textarea{background:#15181c;border-color:#39414b;color:#e3e7ec}
+[data-theme=dark] .hint,[data-theme=dark] .field span,[data-theme=dark] h3,[data-theme=dark] .row small,[data-theme=dark] .card-h small,[data-theme=dark] .wide small,[data-theme=dark] .file,[data-theme=dark] .row-h b,[data-theme=dark] .align span{color:#9aa6b2}
+[data-theme=dark] .dims,[data-theme=dark] .field em{color:#7fb0ff}
+[data-theme=dark] .row.on{background:#173156}[data-theme=dark] .row button{background:none;color:#e3e7ec}
+[data-theme=dark] .fx{background:#1a1e24;border-color:#2e353e}
+[data-theme=dark] .views button{background:#22272ecc}
+[data-theme=dark] .banner,[data-theme=dark] .pop{background:#1f242b;border-color:#2e353e}
+[data-theme=dark] dialog{background:#1c2026;color:#e3e7ec}[data-theme=dark] dialog::backdrop{background:#000a}
+[data-theme=dark] .cmd code,[data-theme=dark] pre,[data-theme=dark] .stats div{background:#15181c}
+[data-theme=dark] .list details,[data-theme=dark] .search{background:#1f242b;border-color:#2e353e}[data-theme=dark] .tip{background:#173156}
+[data-theme=dark] .finds li{border-bottom-color:#2a3038}[data-theme=dark] kbd{background:#22272e;border-color:#39414b}
+[data-theme=dark] .tile-b img,[data-theme=dark] .tile-b .ext{background:#15181c}[data-theme=dark] .tile .del{background:#22272e}
+[data-theme=dark] .vec{background:#15181c}[data-theme=dark] .vec-top,[data-theme=dark] .vec-tools{background:#1c2026;border-color:#2c333c}
+[data-theme=dark] .vec-canvas{background:#111418}[data-theme=dark] .vec-canvas .g1{stroke:#1d2228}[data-theme=dark] .vec-canvas .g2{stroke:#2a3139}[data-theme=dark] .vec-canvas .g3{stroke:#3d4f63}
+[data-theme=dark] .vec-hint{background:#1c2026e6;border-color:#2c333c;color:#c5ccd4}[data-theme=dark] .vec-side{border-color:#2c333c}
+[data-theme=dark] .selbox rect,[data-theme=dark] .selbox circle,[data-theme=dark] .nd,[data-theme=dark] .hd{fill:#15181c}
+[data-theme=dark] .logo-prev{border-color:#39414b}
+[data-theme=dark] .dock{background:#262b33;box-shadow:0 0 0 1px #3a424d,0 8px 28px #0008}

@@ -177,7 +177,7 @@ export function DocPanel({ doc, vars, run }: { doc: Doc; vars: Vars; run: Run })
       <form className="prow" onSubmit={e => { e.preventDefault(); if (n in doc.params) return; if (run([{ op: 'setParam', name: n.trim(), value: 10 }])) setN(''); }}><label className="field"><span>Yeni ölçü adı</span><input placeholder="kalinlik" value={n} onChange={e => setN(e.target.value)} /></label><button disabled={!n.trim()}>Ekle</button></form>
     </Card>
     <Card id="d-keys" icon={<Move3d />} title="Kısayollar" open={false}>
-      <p className="keys"><kbd>W</kbd> taşı <kbd>E</kbd> döndür <kbd>R</kbd> ölçekle <kbd>F</kbd> sığdır <kbd>Ctrl+D</kbd> çoğalt <kbd>Ctrl+G</kbd> grupla <kbd>Del</kbd> sil <kbd>Shift</kbd> ince ayar (ızgarasız)</p>
+      <p className="keys"><kbd>W</kbd> taşı <kbd>E</kbd> döndür <kbd>R</kbd> ölçekle <kbd>F</kbd> sığdır <kbd>Ctrl+A</kbd> hepsini seç <kbd>Ctrl+C</kbd> kopyala <kbd>Ctrl+X</kbd> kes <kbd>Ctrl+V</kbd> yapıştır (SVG de olur) <kbd>Ctrl+D</kbd> çoğalt <kbd>M</kbd> ölç <kbd>Ctrl+G</kbd> grupla <kbd>Del</kbd> sil <kbd>Shift</kbd> ince ayar (ızgarasız)</p>
       <p className="hint">Seçili nesneyi gövdesinden tutup sürüklersen yalnız X–Y’de kayar. Yukarı–aşağı için mavi oku kullan.</p>
     </Card>
   </>;

@@ -50,6 +50,7 @@ export class Viewport {
   private hits: THREE.Mesh[] = [];
   private drag: Drag | null = null;
   private label: HTMLDivElement;
+  private grid = new THREE.GridHelper(260, 26, '#8fa1b5', '#cbd5df');
   private measures: Measure[] = [];
   private hover3: MPoint | null = null;
   private mGroup = new THREE.Group();
@@ -75,7 +76,7 @@ export class Viewport {
     const key = new THREE.DirectionalLight('#fff', 2.2); key.position.set(-80, -120, 200);
     const fill = new THREE.DirectionalLight('#fff', 0.7); fill.position.set(150, 100, 60);
     this.scene.add(new THREE.HemisphereLight('#ffffff', '#9aa4b0', 1.5), key, fill, this.marks);
-    const grid = new THREE.GridHelper(260, 26, '#8fa1b5', '#cbd5df'); grid.rotation.x = Math.PI / 2; grid.position.z = -0.02; this.scene.add(grid);
+    this.grid.rotation.x = Math.PI / 2; this.grid.position.z = -0.02; this.scene.add(this.grid);
     this.hud.add(this.handles, new THREE.AmbientLight('#fff', 2.4));
     this.cursor = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), new THREE.MeshBasicMaterial({ color: '#1677ff', side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.9 }));
     this.cursor.visible = false; this.hud.add(this.cursor);
@@ -131,6 +132,13 @@ export class Viewport {
       Object.assign(m.el.style, { display: mid.z < 1 ? 'block' : 'none', left: `${(mid.x + 1) / 2 * cr.width + cr.left - r.left}px`, top: `${(1 - mid.y) / 2 * cr.height + cr.top - r.top}px` });
     }
     if (this.hover3 && (!this.measures.length || this.measures[this.measures.length - 1].b)) dot(this.hover3.p, '#ffc380');
+  }
+  /** Koyu temada arka plan ve ızgara. */
+  setTheme(dark: boolean) {
+    (this.scene.background as THREE.Color).set(dark ? '#1b1f24' : '#eef1f4');
+    this.scene.remove(this.grid); this.grid.dispose();
+    this.grid = new THREE.GridHelper(260, 26, dark ? '#4b5765' : '#8fa1b5', dark ? '#2c333c' : '#cbd5df'); this.grid.rotation.x = Math.PI / 2; this.grid.position.z = -0.02; this.scene.add(this.grid);
+    this.dirty = true;
   }
   dispose() { cancelAnimationFrame(this.raf); this.ro.disconnect(); this.orbit.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); this.label.remove(); }
   private resize() { const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1; this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.dirty = true; }
