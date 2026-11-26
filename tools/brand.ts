@@ -208,3 +208,11 @@ console.log(`${pages.length} sayfa, ${(pdf.length / 1024).toFixed(0)} KB`);
   writeFileSync('brand/logo/app-icon.svg', IO.exportSvg(app, { box: { x0: 0, y0: 0, x1: 100, y1: 100 }, free: true }).replace(/width="100mm" height="100mm"/, 'width="1024" height="1024"'));
   writeFileSync('public/favicon.svg', IO.exportSvg(icon(0, 0, 100), { box: { x0: 0, y0: 0, x1: 100, y1: 100 }, free: true }).replace(/width="100mm" height="100mm"/, 'width="64" height="64"'));
 }
+
+// --- kurulum dosyası ikonu: uygulama simgesi + sağ altta kurulum rozeti ---
+{
+  const app = readFileSync('brand/logo/app-icon.svg', 'utf8');
+  const badge = `<g id="kurulum"><circle cx="76" cy="76" r="23" fill="#FFFFFF"/><circle cx="76" cy="76" r="19" fill="${C.navy}"/>`
+    + `<path d="M73.6 63.5h4.8v10.2h5.1L76 81.9l-7.5-8.2h5.1z" fill="#FFFFFF"/><rect x="66.5" y="84.6" width="19" height="3.6" rx="1.8" fill="${C.orange}"/></g>`;
+  writeFileSync('brand/logo/setup-icon.svg', app.replace('</svg>', `${badge}\n</svg>`));
+}
