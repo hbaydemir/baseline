@@ -32,7 +32,7 @@ Baseline, 3D yazıcıyla üretim yapanlar için tek bir masaüstü program olmay
 3. Windows “bilinmeyen yayımcı” uyarısı gösterirse **Ek bilgi → Yine de çalıştır**'a bas. Kurulum dosyası henüz dijital imzalı değil.
 4. Başlat menüsünden **Baseline**'ı aç. `.baseline` dosyaları da artık çift tıklayınca Baseline'da açılır.
 
-**Güncellemeler:** Program açılışta yeni sürüm var mı diye bakar. Varsa sağ üstteki yenileme düğmesinde mavi bir indirme rozeti çıkar; tıklayınca yenilikleri görür, indirme sayfasına gidersin. Yeni sürümü kurmak eskisinin üstüne yazar, belgelerine dokunmaz.
+**Güncellemeler:** Program açılışta yeni sürüm var mı diye bakar. Sol paneldeki kartın en altında kurulu sürüm yazar; yeni sürüm varsa yanında “Yeni: v…” ve **Güncelle** düğmesi çıkar, tıklayınca yenilikleri görür, indirme sayfasına gidersin. Aynı kartta yapay zekâ bağlantısı ve açık / koyu tema anahtarı da durur. Yeni sürümü kurmak eskisinin üstüne yazar, belgelerine dokunmaz.
 
 **Gereksinimler:** Windows 10 ya da 11, 64 bit. macOS ve Linux sürümü henüz yok.
 
@@ -77,7 +77,9 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
   - Paragraf kutusu satır kaydırır, iki yana yaslar.
   - Yazıyı bir yola oturtabilirsin.
   - Bilgisayardaki bütün yazı tipleri, kalınlık ve italikleriyle kullanılabilir.
-- **Renk:** 16 renkli palet (sol tık dolgu, sağ tık kenar), sonsuz renk seçici, RGB ve CMYK modu, doğrusal ve dairesel gradient, desen dolgu, kendi paletlerin, şeffaflık ve gölge.
+- **Renk:** Dolgu ve kenar için her zaman açık renk seçici ve 16 renkli palet (sol tık dolgu, sağ tık kenar), RGB ve CMYK modu, kendi paletlerin, şeffaflık ve gölge.
+- **Dolgu tipi:** Düz, Gradient, Desen. Gradient türleri: doğrusal, dairesel, konik, kare. Hazır desenler: noktalar, eğik ve yatay çizgi, kareli, dama, çapraz tarama, zikzak, dalga, tuğla, üçgen (renk dolgudan gelir); ya da kendi çiziminden desen oluştur. Çubuğa çift tıkla durak ekle, ara durağa çift tıkla kaldır, durağa tıklayınca rengi hemen altta.
+- **Damlalık:** Bir nesnenin dolgusunu, gradientini, kenarını ve efektlerini alıp başkasına uygular; imleç önce damlalık, sonra boya kovası olur.
 - **Kenar çizgisi:** Kıl çizgiden kalına; kesik çizgi tipleri; çizgi uçlarına ok, nokta, kare.
 - **Resim:** JPG, PNG, TIFF, WEBP, BMP sürükle-bırakla gelir. Sağ tık **Vektöre çevir** canlı önizlemeyle logoyu renk renk vektöre çevirir. Resmi soluklaştırıp kilitleyerek üstünden çizebilirsin.
 - **Katmanlar:** Gizle, kilitle, “yazdırılmasın”; nesneleri sürükleyerek katmanlar arasında taşı.
@@ -87,7 +89,7 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
 
 | | Açar / içe aktarır | Kaydeder / dışa aktarır |
 | --- | --- | --- |
-| **Belge** | `.baseline` (2D ve 3D birlikte) | `.baseline`; ilk kayıttan sonra her değişiklik otomatik kaydedilir |
+| **Belge** | `.baseline` (2D ve 3D birlikte) | `.baseline`; ilk kayıttan sonra her değişiklik otomatik kaydedilir. Kaydet düğmesi “Üzerine kaydet” ya da “Farklı kaydet” sorar; kaydedilmemiş değişiklik varsa düğmede turuncu nokta yanar |
 | **3D** | STL, OBJ, 3MF (renkler ve Bambu boyası dahil), SVG; otomatik onarım | 3MF (çok renkli, Bambu profiliyle), STL, OBJ |
 | **2D** | SVG, PDF, AI (PDF uyumlu), DXF, JPG, PNG, TIFF, WEBP, BMP | PDF (her artboard ayrı sayfa ya da tek sayfa), AI, SVG, DXF, PNG, JPG |
 
@@ -120,7 +122,7 @@ Baseline, Claude ve Codex için bir MCP sunucusuyla gelir. Programda **Yapay zek
 | Ctrl+D | Çoğalt | Ctrl+Q | Eğriye çevir |
 | Ctrl+C / X / V | Kopyala / kes / yapıştır | Ctrl+R | Son işlemi tekrarla |
 | Ctrl+Z / Y | Geri al / yinele | F4, Shift+F2 | Tümünü / seçiliyi göster |
-| Ctrl+S / O | Kaydet / aç | F5 F6 F7 F8 F10 | Serbest el, dikdörtgen, elips, yazı, şekil aracı |
+| Ctrl+S / Ctrl+Shift+S / Ctrl+O | Kaydet / farklı kaydet / aç | F5 F6 F7 F8 F10 | Serbest el, dikdörtgen, elips, yazı, şekil aracı |
 | Tab | Sağ paneli gizle / göster | Tab | Sağ paneli gizle / göster |
 
 ## Yol haritası

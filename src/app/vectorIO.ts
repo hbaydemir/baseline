@@ -40,11 +40,13 @@ export function itemSvg(it: V.Item, c: SvgCtx): string {
   if (it.img) { const src = c.res.assets?.[it.img.key]; if (!src) return ''; body = `<image href="${src}" x="0" y="0" width="1" height="1" preserveAspectRatio="none" transform="matrix(${imgMatrix(it).map(r4).join(' ')})"/>`; }
   else {
     let fillRef: string | null = null;
-    if (it.fill && it.grad && c.free) { const id = `gr${it.id}`; c.defs.push(gradDef(id, it.grad)); fillRef = `url(#${id})`; }
-    else if (it.fill && it.pat && c.res.patterns?.[it.pat]) { const id = `pt${it.pat}`; if (!c.defs.some(d => d.includes(`id="${id}"`))) { const P = c.res.patterns[it.pat], inner = P.items.map(x => itemSvg(x, { ...c, byId: new Map(P.items.map(q => [q.id, q])) })).join(''); c.defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="${r4(P.w)}" height="${r4(P.h)}">${inner}</pattern>`); } fillRef = `url(#${id})`; }
+    const bands = c.free && it.fill ? V.gradBands(it) : [];
+    if (bands.length) { const id = `gb${it.id}`; c.defs.push(`<clipPath id="${id}"><path d="${V.itemD(it)}"${it.even ? ' clip-rule="evenodd"' : ''}/></clipPath>`); const st = it.stroke ? ` stroke="${css(it.stroke)}" stroke-width="${r4(it.sw)}"` : ''; body = `<g clip-path="url(#${id})">${bands.map(q => `<path d="${q.d}" fill="${q.c}"/>`).join('')}</g>${st ? `<path d="${V.itemD(it)}" fill="none"${st}/>` : ''}`; }
+    else if (it.fill && it.grad && c.free) { const id = `gr${it.id}`; c.defs.push(gradDef(id, it.grad)); fillRef = `url(#${id})`; }
+    else if (it.fill && it.pat && c.res.patterns?.[it.pat]) { const id = `pt${it.pat.replace(/[^\w-]/g, '_')}`; if (!c.defs.some(d => d.includes(`id="${id}"`))) { const P = c.res.patterns[it.pat], inner = P.items.map(x => itemSvg(x, { ...c, byId: new Map(P.items.map(q => [q.id, q])) })).join(''); c.defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="${r4(P.w)}" height="${r4(P.h)}">${inner}</pattern>`); } fillRef = `url(#${id})`; }
     const st = it.stroke ? ` stroke="${css(it.stroke)}" stroke-width="${r4(it.sw)}" stroke-linejoin="${it.join ?? 'round'}" stroke-linecap="${it.cap ?? 'round'}"${it.dash?.length ? ` stroke-dasharray="${it.dash.map(r4).join(' ')}"` : ''}` : '';
     const groups = fillRef ? [{ fill: it.fill, subs: it.subs }] : V.fillGroups(it);
-    if (groups.length === 1) body = `<path d="${V.itemD(it)}" fill="${fillRef ?? css(groups[0].fill)}"${it.even ? ' fill-rule="evenodd"' : ''}${st}/>`;
+    if (body) { /* bantlar yazıldı */ } else if (groups.length === 1) body = `<path d="${V.itemD(it)}" fill="${fillRef ?? css(groups[0].fill)}"${it.even ? ' fill-rule="evenodd"' : ''}${st}/>`;
     else body = groups.map(g => `<path d="${g.subs.map(V.subD).join('')}" fill="${css(g.fill)}"${it.even ? ' fill-rule="evenodd"' : ''}/>`).join('') + (st ? `<path d="${V.itemD(it)}" fill="none"${st}/>` : '');
   }
   let el = wrap.length || it.img ? `<g ${wrap.join(' ')}>${body}</g>` : body;
@@ -131,7 +133,7 @@ export async function exportPdf(items: V.Item[], pages: Box[], res: Res = {}): P
     const bounds = [Math.max(1e-4, st[0].o), ...st.slice(1).map(s => Math.min(1 - 1e-4, s.o))];
     return `<< /FunctionType 3 /Domain [0 1] /Functions [${all.join(' ')}] /Bounds [${bounds.map(n3).join(' ')}] /Encode [${all.map(() => '0 1').join(' ')}] >>`;
   };
-  for (const it of vis) if (it.fill && it.grad && !it.img) {
+  for (const it of vis) if (it.fill && it.grad && !it.img && (it.grad.type === 'linear' || it.grad.type === 'radial')) {
     const b = V.bounds([{ ...it, stroke: null }]); if (!b) continue;
     const g = it.grad, cmyk = g.stops.every(s => isCmyk(s.c)), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, w = b.x1 - b.x0, h = b.y1 - b.y0;
     let coords: string;
@@ -148,7 +150,9 @@ export async function exportPdf(items: V.Item[], pages: Box[], res: Res = {}): P
     const fr = it.even ? '*' : '';
     if (it.fill) {
       const sh = shades.get(it.id), pt = it.pat ? pats.get(it.pat) : undefined;
-      if (sh) o.push('q', subsOps(it.subs), `W${fr} n`, `/${sh.split(':')[0]} sh`, 'Q');
+      const bands = V.gradBands(it);
+      if (bands.length) { o.push('q', subsOps(it.subs), `W${fr} n`); for (const q of bands) o.push(colorOp(q.c, false), subsOps(V.parseD(q.d)), 'f'); o.push('Q'); }
+      else if (sh) o.push('q', subsOps(it.subs), `W${fr} n`, `/${sh.split(':')[0]} sh`, 'Q');
       else if (pt) o.push('/Pattern cs', `/${pt.split(':')[0]} scn`, subsOps(it.subs), `f${fr}`);
       else for (const g of V.fillGroups(it)) if (g.fill) o.push(colorOp(g.fill, false), subsOps(g.subs), `f${fr}`);
     }

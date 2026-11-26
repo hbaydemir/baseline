@@ -14,6 +14,7 @@ import * as C from './color';
 import * as os from './platform';
 import { FontPicker } from './FontPicker';
 import { ColorPicker } from './ColorPicker';
+import { TEXTURES, patKey, resolvePat, patId } from './textures';
 import { Card } from './Inspector';
 import { Tabs, Fold, PanelGrip, usePanel } from './Tabs';
 
@@ -28,6 +29,11 @@ const PRESETS: [string, number, number][] = [['A3', 297, 420], ['A4', 210, 297],
 const DASHES: [string, number[]][] = [['Düz', []], ['Kesikli', [2, 1]], ['Uzun kesik', [4, 1.5]], ['Noktalı', [0.3, 0.8]], ['Kesik-nokta', [3, 1, 0.3, 1]]];
 const SHAPE_KEYS: Record<string, string> = { F6: 'rect', F7: 'ellipse', y: 'polygon' };
 const ARROWS: [string, string][] = [['', 'Yok'], ['tri', 'Dolu ok ▶'], ['open', 'Açık ok ›'], ['dot', 'Nokta ●'], ['square', 'Kare ■'], ['bar', 'Çizgi |']];
+const cursorOf = (body: string, x: number, y: number) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'><g stroke='#fff' stroke-width='4.5'>${body}</g><g stroke='#152033' stroke-width='1.8'>${body}</g></svg>`)}") ${x} ${y}, crosshair`;
+/** Damlalık: renk alırken damlalık, uygularken boya kovası (Corel'deki gibi). */
+const CUR_DROPPER = cursorOf("<path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/>", 2, 22);
+const CUR_BUCKET = cursorOf("<path d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z'/><path d='m5 2 5 5'/><path d='M2 13h15'/><path d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'/>", 20, 21);
+const GRADS: [V.Grad['type'], string][] = [['linear', 'Doğrusal'], ['radial', 'Dairesel'], ['conic', 'Konik'], ['square', 'Kare']];
 const FX_LABEL: Record<string, string> = { contour: 'Kontür', corners: 'Köşeler: pah / yuvarla', env: 'Zarf / bükme', blend: 'Geçiş (blend)', pattern: 'Desen oluştur', clip: 'PowerClip', path: 'Yazıyı yola oturt', trace: 'Vektöre çevir', opacity: 'Şeffaflık', shadow: 'Gölge' };
 const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString('tr-TR');
 
@@ -41,7 +47,7 @@ export function loadItems(svg: string, width: number): V.Item[] {
 
 export interface VectorApi { importPick(): void; exportAs(kind: string): void; drop(files: { name: string; data: Uint8Array }[]): void }
 export interface FreeMode {
-  sketch: IO.Sketch | null; hidden?: boolean; api?: MutableRefObject<VectorApi | null>;
+  sketch: IO.Sketch | null; hidden?: boolean; api?: MutableRefObject<VectorApi | null>; footer?: ReactNode;
   onChange?(sketch: IO.Sketch): void; onInsert(svg: string, items: V.Item[], sketch: IO.Sketch): void; onToSurface?(items: V.Item[]): void;
 }
 const IMG_EXT = /\.(png|jpe?g|webp|bmp|gif|tiff?)$/i;
@@ -104,7 +110,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const dragRow = useRef<number[] | null>(null), [dropAt, setDropAt] = useState<string | null>(null);
   const [trace, setTrace] = useState<null | { src: string; bmp: ImageBitmap; from: number }>(null);
   const [tracePrev, setTracePrev] = useState<V.Item[] | null>(null), [traceDel, setTraceDel] = useState(false), [traceBusy, setTraceBusy] = useState(false);
-  const [gStop, setGStop] = useState(0), [patGap, setPatGap] = useState(2);
+  const [gStop, setGStop] = useState(0), [patGap, setPatGap] = useState(2), [ctarget, setCtarget] = useState<'fill' | 'stroke'>('fill');
+  const liveRef = useRef(false), [pk, setPk] = useState(0);
   const [env, setEnv] = useState({ kind: 'arc', amt: 40 }); const envBase = useRef<{ items: V.Item[]; b: BoxT } | null>(null);
   const [pals, setPals] = useState<{ name: string; colors: string[] }[]>(() => { try { return JSON.parse(localStorage.getItem('baseline-palettes') ?? '[]'); } catch { return []; } });
   const [palName, setPalName] = useState('');
@@ -156,8 +163,9 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const live = items.filter(i => !isHid(i));
   /** Dışa aktarılacaklar: görünür ve “yazdırılmasın” olmayan katmanlardakiler. */
   const ordered = layers.length > 1 ? layers.flatMap(l => items.filter(i => layerOf(i)?.id === l.id)) : items;
-  const printable = (list: V.Item[]) => O.withArrows((layers.length > 1 ? layers.flatMap(l => list.filter(i => layerOf(i)?.id === l.id)) : list).filter(i => !isHid(i) && !layerOf(i)?.noPrint).map(i => i.hidden ? i : { ...i, hidden: undefined }));
-  const res = (): IO.Res => ({ assets, patterns });
+  const printable = (list: V.Item[]) => O.withArrows((layers.length > 1 ? layers.flatMap(l => list.filter(i => layerOf(i)?.id === l.id)) : list).filter(i => !isHid(i) && !layerOf(i)?.noPrint).map(i => ({ ...(i.hidden ? i : { ...i, hidden: undefined }), pat: patKey(i) })));
+  const getPat = (k?: string) => resolvePat(k, patterns);
+  const res = (): IO.Res => { const all: Record<string, IO.Pattern> = { ...patterns }; for (const it of itemsRef.current) { const k = patKey(it); if (k && !all[k]) { const q = getPat(k); if (q) all[k] = q; } } return { assets, patterns: all }; };
   /** Grup / kap birimleri (hizalama, dağıtma için). */
   const units = (ids: number[]) => { const m = new Map<string, number[]>(); for (const it of items.filter(i => ids.includes(i.id))) { const k = it.group !== undefined ? 'g' + it.group : it.clip !== undefined ? 'i' + it.clip : 'i' + it.id; m.set(k, [...(m.get(k) ?? []), it.id]); } return [...m.values()]; };
 
@@ -358,12 +366,25 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   // --- renk ---
   const remember = (c: string | null) => c && setRecent(r => [c, ...r.filter(x => x !== c)].slice(0, 12));
   const paint = (c: string | null, target: 'fill' | 'stroke') => {
-    remember(c);
+    remember(c); setPk(k => k + 1);
     if (target === 'fill' && c && edit && edit.a !== edit.b) { void charStyle({ fill: c }); return; }
     if (target === 'fill' && c && one?.grad && sel.length) { applyTo(sel, x => x.grad ? { ...x, grad: { ...x.grad, stops: x.grad.stops.map((q, k) => k === gStop ? { ...q, c } : q) } } : x); return; }
     if (sel.length) applyTo(sel, x => x.img ? x : target === 'fill' ? { ...x, fill: c, subFill: c ? x.subFill : undefined, grad: c ? x.grad : undefined, pat: c ? x.pat : undefined, ...(x.text?.cs && !c ? { text: { ...x.text, cs: x.text.cs.map(q => q && { ...q, fill: undefined }) } } : {}) } : { ...x, stroke: c, sw: x.stroke ? x.sw : 0.5 });
     if (target === 'fill') setFill(c); else setStroke(c);
   };
+  /** Sürüklerken tek geri alma adımı: ilk değişiklikte anlık görüntü alınır. */
+  const liveEdit = (f: (a: V.Item[]) => V.Item[]) => { if (!liveRef.current) { past.current.push(itemsRef.current); future.current = []; liveRef.current = true; } setItems(f, false); };
+  const commitLive = (c?: string) => { liveRef.current = false; if (c) remember(c); };
+  /** Renk seçiciden: düz dolgu ya da kenar (seçim yoksa yeni çizimlerin rengi). */
+  const setColor = (c: string, target: 'fill' | 'stroke', isLive: boolean) => {
+    if (edit && edit.a !== edit.b && target === 'fill') { if (!isLive) void charStyle({ fill: c }); return; }
+    if (!sel.length) { if (target === 'fill') setFill(c); else setStroke(c); if (!isLive) remember(c); return; }
+    liveEdit(a => a.map(x => !sel.includes(x.id) || x.img ? x : target === 'fill' ? { ...x, fill: c, grad: undefined, pat: undefined } : { ...x, stroke: c, sw: x.stroke ? x.sw : 0.5 }));
+    if (!isLive) commitLive(c);
+  };
+  const palClick = (c: string) => { setPk(k => k + 1); if (ctarget === 'fill' && selItems[0]?.grad) { applyTo(sel, x => x.grad ? { ...x, grad: { ...x.grad, stops: x.grad.stops.map((q, n) => n === Math.min(gStop, x.grad!.stops.length - 1) ? { ...q, c } : q) } } : x); remember(c); } else paint(c, ctarget); };
+  const ftype = selItems[0]?.grad ? 'grad' : selItems[0]?.pat ? 'pat' : 'flat';
+  const setFtype = (k: 'flat' | 'grad' | 'pat') => { if (k === 'flat') applyTo(sel, x => ({ ...x, grad: undefined, pat: undefined })); else if (k === 'grad') { if (!selItems[0]?.grad) setGrad('linear'); setGStop(0); } else applyTo(sel, x => x.img ? x : { ...x, grad: undefined, pat: x.pat && x.pat !== '__none' ? x.pat : 'tx:dots', fill: x.fill ?? '#000000' }); };
   const savePals = (p: { name: string; colors: string[] }[]) => { setPals(p); try { localStorage.setItem('baseline-palettes', JSON.stringify(p)); } catch { /* yok */ } };
   const curPal = pals.find(q => q.name === palName);
   const addToPal = (c: string | null) => { if (!c) return; if (curPal) savePals(pals.map(q => q === curPal ? { ...q, colors: [...q.colors.filter(x => x !== c), c] } : q)); else { const name = pals.some(q => q.name === 'Paletim') ? `Paletim ${pals.length + 1}` : 'Paletim'; savePals([...pals, { name, colors: [c] }]); setPalName(name); } };
@@ -578,7 +599,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const itemDown = (it: V.Item, e: PE) => {
     if (e.button === 1 || e.button === 2 || space.current.down) return;
     if (isLock(it) && tool !== 'text') return;
-    if (tool === 'pick') { e.stopPropagation(); if (!picked) { const s = { fill: it.fill, stroke: it.stroke, sw: it.sw, dash: it.dash, join: it.join, cap: it.cap, opacity: it.opacity, shadow: it.shadow }; setPicked(s); setFill(it.fill); setStroke(it.stroke); } else applyTo(expand([it.id]), x => ({ ...x, ...picked })); return; }
+    if (tool === 'pick') { e.stopPropagation(); if (!picked) { const s: Partial<V.Item> = { fill: it.fill, stroke: it.stroke, sw: it.sw, dash: it.dash, join: it.join, cap: it.cap, opacity: it.opacity, shadow: it.shadow, grad: it.grad, pat: it.pat, arrows: it.arrows }; setPicked(s); setFill(it.fill); setStroke(it.stroke); } else applyTo(expand([it.id]), x => ({ ...x, ...picked })); return; }
     if (tool === 'text' && it.text) { textDown(it, e); return; }
     if (tool !== 'select' && tool !== 'node') return;
     if (isLock(it)) return;
@@ -755,8 +776,9 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const byId = new Map(items.map(i => [i.id, i])), clipIds = new Set(items.filter(i => i.clip !== undefined).map(i => i.clip!));
   const defsShadow = isFree ? items.filter(i => i.shadow && !i.hidden).map(i => <filter key={'f' + i.id} id={`vsh${i.id}`} x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx={i.shadow!.dx} dy={i.shadow!.dy} stdDeviation={i.shadow!.blur / 2} floodColor={C.css(i.shadow!.color)} floodOpacity={i.shadow!.opacity} /></filter>) : null;
   const defsFill = <>
-    {items.filter(i => i.fill && i.grad && !isHid(i)).map(i => { const st = i.grad!.stops.map((q, k) => <stop key={k} offset={q.o} stopColor={C.css(q.c)} />); return i.grad!.type === 'radial' ? <radialGradient key={'g' + i.id} id={`vgr${i.id}`} cx=".5" cy=".5" r=".5">{st}</radialGradient> : <linearGradient key={'g' + i.id} id={`vgr${i.id}`} x1="0" y1=".5" x2="1" y2=".5" gradientTransform={`rotate(${i.grad!.angle} .5 .5)`}>{st}</linearGradient>; })}
-    {Object.entries(patterns).filter(([k]) => items.some(i => i.pat === k)).map(([k, P2]) => <pattern key={'p' + k} id={`vpt${k}`} patternUnits="userSpaceOnUse" width={P2.w} height={P2.h}>{P2.items.map(q => q.img ? <image key={q.id} href={assets[q.img.key]} width={1} height={1} preserveAspectRatio="none" transform={`matrix(${IO.imgMatrix(q).join(' ')})`} /> : V.fillGroups(q).map((g, n) => <path key={q.id + '-' + n} d={g.subs.map(V.subD).join('')} fill={C.css(g.fill)} fillRule={q.even ? 'evenodd' : 'nonzero'} stroke={q.stroke && n === 0 ? C.css(q.stroke) : 'none'} strokeWidth={q.sw} />))}</pattern>)}
+    {items.filter(i => i.fill && i.grad && (i.grad.type === 'conic' || i.grad.type === 'square') && !isHid(i)).map(i => <clipPath key={'gb' + i.id} id={`vgb${i.id}`}><path d={V.itemDc(i)} clipRule={i.even ? 'evenodd' : 'nonzero'} /></clipPath>)}
+    {items.filter(i => i.fill && i.grad && (i.grad.type === 'linear' || i.grad.type === 'radial') && !isHid(i)).map(i => { const st = i.grad!.stops.map((q, k) => <stop key={k} offset={q.o} stopColor={C.css(q.c)} />); return i.grad!.type === 'radial' ? <radialGradient key={'g' + i.id} id={`vgr${i.id}`} cx=".5" cy=".5" r=".5">{st}</radialGradient> : <linearGradient key={'g' + i.id} id={`vgr${i.id}`} x1="0" y1=".5" x2="1" y2=".5" gradientTransform={`rotate(${i.grad!.angle} .5 .5)`}>{st}</linearGradient>; })}
+    {[...new Set(items.filter(i => i.fill && i.pat).map(i => patKey(i)!))].map(k => [k, getPat(k)] as const).filter((x): x is readonly [string, IO.Pattern] => !!x[1]).map(([k, P2]) => <pattern key={'p' + k} id={`vpt${patId(k)}`} patternUnits="userSpaceOnUse" width={P2.w} height={P2.h}>{P2.items.map(q => q.img ? <image key={q.id} href={assets[q.img.key]} width={1} height={1} preserveAspectRatio="none" transform={`matrix(${IO.imgMatrix(q).join(' ')})`} /> : V.fillGroups(q).map((g, n) => <path key={q.id + '-' + n} d={g.subs.map(V.subD).join('')} fill={C.css(g.fill)} fillRule={q.even ? 'evenodd' : 'nonzero'} stroke={q.stroke && n === 0 ? C.css(q.stroke) : 'none'} strokeWidth={q.sw} />))}</pattern>)}
   </>;
   const itemMenu = (it: V.Item, e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); if (rightPan.current) { rightPan.current = false; return; } if (!isLock(it) && !sel.includes(it.id)) { setSel(expand([it.id])); lastPick.current = it.id; } setCm({ x: e.clientX, y: e.clientY, id: it.id }); };
   const itemEl = (it: V.Item) => {
@@ -767,8 +789,10 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     let body: ReactNode;
     if (it.img) body = <><image href={assets[it.img.key]} x={0} y={0} width={1} height={1} preserveAspectRatio="none" transform={`matrix(${IO.imgMatrix(it).join(' ')})`} style={{ pointerEvents: 'none' }} /><path d={d} fill="transparent" {...ev} style={{ pointerEvents: pe, cursor: cur }} /></>;
     else {
-      const ref = it.fill && it.grad ? `url(#vgr${it.id})` : it.fill && it.pat && patterns[it.pat] ? `url(#vpt${it.pat})` : null, groups = ref ? [{ fill: it.fill, subs: it.subs }] : V.fillGroups(it);
-      body = groups.length === 1 ? <path d={d} fill={ref ?? C.css(groups[0].fill)} fillRule={it.even ? 'evenodd' : 'nonzero'} {...st} {...ev} style={{ pointerEvents: pe, cursor: cur }} />
+      const bands = it.fill && it.grad ? V.gradBands(it) : [];
+      const ref = it.fill && it.grad && !bands.length ? `url(#vgr${it.id})` : it.fill && it.pat && getPat(patKey(it)) ? `url(#vpt${patId(patKey(it)!)})` : null, groups = ref ? [{ fill: it.fill, subs: it.subs }] : V.fillGroups(it);
+      body = bands.length ? <><g clipPath={`url(#vgb${it.id})`} style={{ pointerEvents: 'none' }}>{bands.map((q, k) => <path key={k} d={q.d} fill={q.c} />)}</g><path d={d} fill="transparent" fillRule={it.even ? 'evenodd' : 'nonzero'} {...st} {...ev} style={{ pointerEvents: pe, cursor: cur }} /></>
+        : groups.length === 1 ? <path d={d} fill={ref ?? C.css(groups[0].fill)} fillRule={it.even ? 'evenodd' : 'nonzero'} {...st} {...ev} style={{ pointerEvents: pe, cursor: cur }} />
         : <>{groups.map((g, k) => <path key={k} d={g.subs.map(V.subD).join('')} fill={C.css(g.fill)} fillRule={it.even ? 'evenodd' : 'nonzero'} {...ev} style={{ pointerEvents: pe, cursor: cur }} />)}{it.stroke && <path d={d} fill="none" {...st} style={{ pointerEvents: 'none' }} />}</>;
       if (!it.fill && it.clip === undefined) body = <>{body}<path d={d} fill="none" stroke="transparent" strokeWidth={8 * px} pointerEvents="stroke" {...ev} /></>;
     }
@@ -905,10 +929,11 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
             </div>; })}</div>; })()}
           {!items.length && <p className="hint">Henüz nesne yok. Alttaki araçlardan çiz, resim ya da dosya sürükleyip bırak.</p>}</div>
       </section>
+      {free?.footer}
     </aside>
 
     <div className="vec-canvas" ref={box} onContextMenu={e => { e.preventDefault(); if (rightPan.current) { rightPan.current = false; return; } setCm({ x: e.clientX, y: e.clientY }); }}>
-      <svg ref={svg} viewBox={vb} width={size.w} height={size.h} onPointerDown={down} onPointerMove={moveEv} onPointerUp={up} onWheel={wheel} style={{ cursor: tool === 'pan' ? 'grab' : tool === 'select' || tool === 'node' ? 'default' : tool === 'zoom' ? 'zoom-in' : tool === 'text' ? 'text' : 'crosshair' }}>
+      <svg ref={svg} viewBox={vb} width={size.w} height={size.h} onPointerDown={down} onPointerMove={moveEv} onPointerUp={up} onWheel={wheel} style={{ cursor: tool === 'pan' ? 'grab' : tool === 'select' || tool === 'node' ? 'default' : tool === 'zoom' ? 'zoom-in' : tool === 'text' ? 'text' : tool === 'pick' ? (picked ? CUR_BUCKET : CUR_DROPPER) : 'crosshair' }}>
         <defs>
           {[...clipIds].map(id => byId.get(id) && <clipPath key={id} id={`vcl${id}`}><path d={V.itemDc(byId.get(id)!)} clipRule={byId.get(id)!.even ? 'evenodd' : 'nonzero'} /></clipPath>)}
           {defsShadow}
@@ -987,30 +1012,37 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       <PanelGrip />
       <Tabs id="v2d" head={selItems.length ? <div className="ins-title"><b>{selItems.length === 1 ? (one.name ?? (one.text ? `“${one.text.value.slice(0, 24)}”` : one.img ? 'Resim' : 'Eğri')) : `${units(sel).length} nesne seçili`}</b></div> : undefined}>
       <Card id="color" icon={<Palette />} title="Renk" extra={<div className="seg mini-seg"><button className={mode === 'rgb' ? 'on' : ''} onClick={() => switchMode('rgb')}>RGB</button><button className={mode === 'cmyk' ? 'on' : ''} onClick={() => switchMode('cmyk')}>CMYK</button></div>}>
-        <div className="vcur">
-          <button className="vchip" data-cp onClick={() => setPicker(picker === 'fill' ? null : 'fill')}><span className="sw" style={{ background: curFill ? C.css(curFill) : undefined }}>{curFill ? '' : '∅'}</span>Dolgu<small>{curFill ? C.label(curFill) : 'yok'}</small></button>
-          <button className="vchip" data-cp onClick={() => setPicker(picker === 'stroke' ? null : 'stroke')}><span className="sw ring" style={{ borderColor: curStroke ? C.css(curStroke) : undefined }}>{curStroke ? '' : '∅'}</span>Kenar<small>{curStroke ? C.label(curStroke) : 'yok'}</small></button>
-        </div>
-        {(picker === 'fill' || picker === 'stroke') && <ColorPicker key={picker + sel.join()} value={picker === 'fill' ? curFill : curStroke} mode={mode} onChange={c => paint(c, picker)} onClose={() => setPicker(null)} />}
-        {sel.length > 0 && !selItems.every(i => i.img) && <div className="seg">{([['none', 'Düz'], ['linear', 'Doğrusal'], ['radial', 'Dairesel'], ['pat', 'Desen']] as const).map(([k, l]) => <button key={k} className={(k === 'none' ? !one?.grad && !one?.pat : k === 'pat' ? !!one?.pat && !one?.grad : one?.grad?.type === k) ? 'on' : ''} onClick={() => k === 'pat' ? applyTo(sel, x => x.img ? x : { ...x, grad: undefined, pat: x.pat ?? Object.keys(patterns)[0], fill: x.fill ?? '#000000' }) : (setGrad(k), k === 'none' && applyTo(sel, x => ({ ...x, pat: undefined })))}>{l}</button>)}</div>}
-        {one?.grad && <div className="vgrad">
-          <div className="vgbar" style={{ background: `linear-gradient(90deg, ${[...one.grad.stops].sort((a, b) => a.o - b.o).map(q => `${C.css(q.c)} ${q.o * 100}%`).join(',')})` }} onDoubleClick={e => { const r0 = e.currentTarget.getBoundingClientRect(), o = Math.max(0, Math.min(1, (e.clientX - r0.left) / r0.width)); editGrad(g => ({ ...g, stops: [...g.stops, { o, c: g.stops[gStop]?.c ?? '#888888' }] })); setGStop(one.grad!.stops.length); }}>
-            {one.grad.stops.map((q, k) => <i key={k} className={k === gStop ? 'on' : ''} style={{ left: `${q.o * 100}%`, background: C.css(q.c) }} onPointerDown={e => { e.stopPropagation(); setGStop(k); const bar = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect(); past.current.push(itemsRef.current); const mv = (ev: PointerEvent) => editGrad(g => ({ ...g, stops: g.stops.map((s2, n) => n === k ? { ...s2, o: Math.max(0, Math.min(1, (ev.clientX - bar.left) / bar.width)) } : s2) }), false); const u2 = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', u2); }; addEventListener('pointermove', mv); addEventListener('pointerup', u2); }} />)}
+        <div className="ctgt">{(['fill', 'stroke'] as const).map(k => { const c = k === 'fill' ? curFill : curStroke, gr = k === 'fill' && one?.grad; return <button key={k} className={ctarget === k ? 'on' : ''} onClick={() => setCtarget(k)}>
+          <span className={k === 'stroke' ? 'sw ring' : 'sw'} style={k === 'stroke' ? { borderColor: c ? C.css(c) : undefined } : { background: gr ? `linear-gradient(90deg,${gr.stops.map(q => C.css(q.c)).join(',')})` : c ? C.css(c) : undefined }}>{c ? '' : '∅'}</span>
+          <span className="ctgt-t"><b>{k === 'fill' ? 'Dolgu' : 'Kenar'}</b><small>{gr ? 'Gradient' : k === 'fill' && one?.pat ? 'Desen' : c ? C.label(c) : 'yok'}</small></span></button>; })}</div>
+        {ctarget === 'fill' && sel.length > 0 && !selItems.every(i => i.img) && <div className="seg seg-full">{([['flat', 'Düz'], ['grad', 'Gradient'], ['pat', 'Desen']] as const).map(([k, l]) => <button key={k} className={ftype === k ? 'on' : ''} onClick={() => setFtype(k)}>{l}</button>)}</div>}
+        {ctarget === 'fill' && one?.grad ? (() => { const g = one.grad, st = g.stops, gs = Math.min(gStop, st.length - 1); return <div className="vgrad">
+          <div className="gtypes">{GRADS.map(([k, l]) => <button key={k} className={g.type === k ? 'on' : ''} title={l} onClick={() => editGrad(q => ({ ...q, type: k }))}><span className={`gt gt-${k}`} />{l}</button>)}</div>
+          <div className="vgbar" title="Çift tıkla: durak ekle" style={{ background: `linear-gradient(90deg, ${st.map(q => `${C.css(q.c)} ${q.o * 100}%`).join(',')})` }} onDoubleClick={e => { if ((e.target as Element).tagName === 'I') return; const r0 = e.currentTarget.getBoundingClientRect(), o = Math.max(0.01, Math.min(0.99, (e.clientX - r0.left) / r0.width)), c = V.gradAt(g, o); editGrad(q => ({ ...q, stops: [...q.stops, { o, c }].sort((a, b) => a.o - b.o) })); setGStop(st.filter(q => q.o < o).length); }}>
+            {st.map((q, k) => <i key={k} className={(k === gs ? 'on' : '') + (k === 0 || k === st.length - 1 ? ' end' : '')} title={k === 0 || k === st.length - 1 ? 'Uç durak' : 'Sürükle: taşı · çift tık: kaldır'} style={{ left: `${q.o * 100}%`, background: C.css(q.c) }}
+              onDoubleClick={e => { e.stopPropagation(); if (k === 0 || k === st.length - 1) return; editGrad(q2 => ({ ...q2, stops: q2.stops.filter((_, n) => n !== k) })); setGStop(Math.max(0, k - 1)); }}
+              onPointerDown={e => { e.stopPropagation(); setGStop(k); if (k === 0 || k === st.length - 1) return; const bar = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect(); let moved2 = false; const mv = (ev: PointerEvent) => { if (!moved2) { past.current.push(itemsRef.current); moved2 = true; } const o = Math.max(0.01, Math.min(0.99, (ev.clientX - bar.left) / bar.width)); editGrad(q2 => ({ ...q2, stops: q2.stops.map((s2, n) => n === k ? { ...s2, o } : s2) }), false); }; const u2 = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', u2); if (moved2) { const o = itemsRef.current.find(x => sel.includes(x.id) && x.grad)?.grad?.stops[k]?.o ?? 0; editGrad(q2 => ({ ...q2, stops: [...q2.stops].sort((a, b) => a.o - b.o) }), false); setGStop(Math.max(0, (one.grad?.stops ?? []).filter(x => x.o < o).length)); } }; addEventListener('pointermove', mv); addEventListener('pointerup', u2); }} />)}
           </div>
-          <div className="grid2">{one.grad.type === 'linear' ? <label className="field"><span>Açı (°)</span><input type="number" step={15} value={one.grad.angle} onChange={e => editGrad(g => ({ ...g, angle: +e.target.value || 0 }))} /></label> : <span />}
-            <button className="vchip" data-cp onClick={() => setPicker(picker === 'stop' ? null : 'stop')}><span className="sw" style={{ background: C.css(one.grad.stops[gStop]?.c ?? '#000') }} />Durak rengi</button></div>
-          <div className="chips"><button className="chip" onClick={() => editGrad(g => ({ ...g, stops: g.stops.map(q => ({ ...q, o: 1 - q.o })) }))}>Ters çevir</button><button className="chip" disabled={one.grad.stops.length < 3} onClick={() => { editGrad(g => ({ ...g, stops: g.stops.filter((_, k) => k !== gStop) })); setGStop(0); }}>Durağı sil</button></div>
-          {picker === 'stop' && <ColorPicker value={one.grad.stops[gStop]?.c ?? null} mode={mode} onChange={c => editGrad(g => ({ ...g, stops: g.stops.map((q, k) => k === gStop ? { ...q, c } : q) }))} onClose={() => setPicker(null)} />}
-          <small className="hint">Çubuğa çift tıkla: durak ekle. Durağı sürükle: yerini değiştir. Palette tıkla: seçili durağın rengi.</small>
-        </div>}
-        {one?.pat && !one.grad && <div className="vgrad"><label className="field"><span>Desen</span><select value={one.pat} onChange={e => applyTo(sel, x => ({ ...x, pat: e.target.value }))}>{Object.entries(patterns).map(([k, q]) => <option key={k} value={k}>{q.name}</option>)}</select></label>{!Object.keys(patterns).length && <small className="hint">Henüz desen yok: desen olacak çizimi seçip Efektler'den “Desen”i ekle.</small>}</div>}
+          <div className="grow2">{(g.type === 'linear' || g.type === 'conic') && <label className="field"><span>Açı (°)</span><input type="number" step={15} value={g.angle} onChange={e => editGrad(q => ({ ...q, angle: +e.target.value || 0 }))} /></label>}
+            <button className="tb" onClick={() => editGrad(q => ({ ...q, stops: q.stops.map(x => ({ ...x, o: 1 - x.o })).sort((a, b) => a.o - b.o) }))}>Ters çevir</button></div>
+          <small className="vlab">Durak {gs + 1} / {st.length} rengi</small>
+          <ColorPicker inline key={'stop' + gs + sel.join() + pk} value={st[gs]?.c ?? null} mode={mode} onChange={c => liveEdit(a => a.map(x => sel.includes(x.id) && x.grad ? { ...x, grad: { ...x.grad, stops: x.grad.stops.map((q, n) => n === gs ? { ...q, c } : q) } } : x))} onCommit={commitLive} />
+          <small className="hint">Çubuğa çift tıkla: durak ekle. Ara durağa çift tıkla: kaldır. Durağı seç, rengi hemen altta.</small>
+        </div>; })()
+        : ctarget === 'fill' && one?.pat ? <div className="vpat-wrap">
+            <small className="vlab">Hazır desenler</small>
+            <div className="vtex">{TEXTURES.map(t => { const P2 = t.make(C.css(one.fill ?? '#000000')); return <button key={t.id} className={one.pat === t.id ? 'on' : ''} title={t.name} onClick={() => applyTo(sel, x => x.img ? x : { ...x, pat: t.id, grad: undefined, fill: x.fill ?? '#000000' })}>
+              <svg viewBox="0 0 12 9"><defs><pattern id={`pv-${patId(t.id)}`} patternUnits="userSpaceOnUse" width={P2.w} height={P2.h}>{P2.items[0].subs.map((q, n) => <path key={n} d={V.subD(q)} fill={C.css(one.fill ?? '#000')} />)}</pattern></defs><rect width="12" height="9" fill={`url(#pv-${patId(t.id)})`} /></svg><span>{t.name}</span></button>; })}</div>
+            {Object.keys(patterns).length > 0 && <><small className="vlab">Desenlerim</small><div className="vpats">{Object.entries(patterns).map(([k, q]) => <button key={k} className={one.pat === k ? 'on' : ''} onClick={() => applyTo(sel, x => ({ ...x, pat: k, grad: undefined, fill: x.fill ?? '#000000' }))}>{q.name}<small>{Math.round(q.w * 10) / 10} × {Math.round(q.h * 10) / 10} mm</small></button>)}</div></>}
+            <p className="hint">Hazır desenin rengi dolgu renginden gelir: aşağıdaki paletten seç. Kendi desenin için çizimi seç, Efektler'den “Desen oluştur”.</p></div>
+        : <ColorPicker inline key={ctarget + sel.join() + pk} value={ctarget === 'fill' ? curFill : curStroke} mode={mode} onChange={c => setColor(c, ctarget, true)} onCommit={c => setColor(c, ctarget, false)} />}
         <div className="vpalbar"><select value={palName} onChange={e => setPalName(e.target.value)}><option value="">{mode === 'cmyk' ? 'CMYK paleti' : 'RGB paleti'}</option>{pals.map(q => <option key={q.name} value={q.name}>{q.name}</option>)}</select>
-          <button className="ib" title="Dolgu rengini paletime ekle" aria-label="Paletime ekle" onClick={() => addToPal(curFill)}><Plus /></button>
+          <button className="ib" title="Bu rengi paletime ekle" aria-label="Paletime ekle" onClick={() => addToPal(ctarget === 'fill' ? (one?.grad ? one.grad.stops[Math.min(gStop, one.grad.stops.length - 1)]?.c ?? null : curFill) : curStroke)}><Plus /></button>
           {curPal && <button className="ib" title="Bu paleti sil" aria-label="Paleti sil" onClick={() => { if (confirm(`“${curPal.name}” silinsin mi?`)) { savePals(pals.filter(q => q !== curPal)); setPalName(''); } }}><Trash2 /></button>}</div>
-        <div className="pal16">{(curPal ? curPal.colors : C.palette(mode)).map(c => <span key={c} onClickCapture={e => { if (curPal && e.shiftKey) { e.stopPropagation(); savePals(pals.map(q => q === curPal ? { ...q, colors: q.colors.filter(x => x !== c) } : q)); } }}>{sw(c, () => paint(c, 'fill'), () => paint(c, 'stroke'))}</span>)}{sw(null, () => paint(null, 'fill'), () => paint(null, 'stroke'))}</div>
-        {recent.length > 0 && <><small className="vlab">Son kullanılan</small><div className="pal16 small">{recent.map(c => sw(c, () => paint(c, 'fill'), () => paint(c, 'stroke'), 'r' + c))}</div></>}
-        {docColors.length > 0 && <><small className="vlab">Belgedeki renkler</small><div className="pal16 small">{docColors.map(c => sw(c, () => paint(c, 'fill'), () => paint(c, 'stroke'), 'd' + c))}</div></>}
-        <p className="hint">Sol tık dolgu, sağ tık kenar rengi, ∅ kaldırır.{edit && edit.a !== edit.b ? ' Yazıda seçili harflere uygulanır.' : ''}{curPal ? ' Shift+tık: paletten çıkar.' : ''}</p>
+        <div className="pal16">{(curPal ? curPal.colors : C.palette(mode)).map(c => <span key={c} onClickCapture={e => { if (curPal && e.shiftKey) { e.stopPropagation(); savePals(pals.map(q => q === curPal ? { ...q, colors: q.colors.filter(x => x !== c) } : q)); } }}>{sw(c, () => palClick(c), () => paint(c, 'stroke'))}</span>)}{sw(null, () => paint(null, ctarget), () => paint(null, 'stroke'))}</div>
+        {recent.length > 0 && <><small className="vlab">Son kullanılan</small><div className="pal16 small">{recent.map(c => sw(c, () => palClick(c), () => paint(c, 'stroke'), 'r' + c))}</div></>}
+        {docColors.length > 0 && <><small className="vlab">Belgedeki renkler</small><div className="pal16 small">{docColors.map(c => sw(c, () => palClick(c), () => paint(c, 'stroke'), 'd' + c))}</div></>}
+        <p className="hint">Paletten sol tık: {ctarget === 'fill' ? (one?.grad ? 'seçili durak' : one?.pat ? 'desen rengi' : 'dolgu') : 'kenar'}, sağ tık: kenar. ∅ kaldırır.{edit && edit.a !== edit.b ? ' Yazıda seçili harflere uygulanır.' : ''}{curPal ? ' Shift+tık: paletten çıkar.' : ''}</p>
         {mode === 'cmyk' && <p className="hint warn">CMYK değerleri yaklaşık: renk profili (ICC) kullanılmıyor. Kritik renklerde değerleri elle gir.</p>}
       </Card>
 
@@ -1132,3 +1164,4 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     </div></div>}
   </div>;
 }
+

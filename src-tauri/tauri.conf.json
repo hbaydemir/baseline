@@ -5,7 +5,7 @@
   "identifier": "net.baydemir.baseline",
   "build": { "frontendDist": "../dist", "devUrl": "http://localhost:1430", "beforeDevCommand": "npm run dev", "beforeBuildCommand": "npm run build && npm run build:tools" },
   "app": {
-    "windows": [{ "label": "main", "title": "Baseline", "width": 1360, "height": 860, "minWidth": 1000, "minHeight": 620, "dragDropEnabled": false, "backgroundColor": "#f7f9fb" }],
+    "windows": [{ "label": "main", "title": "Baseline", "width": 1360, "height": 860, "minWidth": 1000, "minHeight": 620, "dragDropEnabled": false, "backgroundColor": "#f7f9fb", "decorations": false, "shadow": true }],
     "security": { "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com data:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:" }
   },
   "bundle": {

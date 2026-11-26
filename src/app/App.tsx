@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
+import { CheckCircle2, Info, AlertTriangle, XCircle, Upload, Minus, Square, ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
 import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
@@ -14,6 +14,7 @@ import { VectorEditor, loadItems } from './VectorEditor';
 import type { Sketch } from './vectorIO';
 import { Wordmark, LogoIcon } from './Logo';
 import { PanelGrip, usePanel } from './Tabs';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { VectorApi } from './VectorEditor';
 import { Assistant, Library } from './Panels';
 import * as V from './vector';
@@ -27,7 +28,7 @@ const ICONS: Record<string, ReactNode> = {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
 const MODEL = /\.(stl|obj|3mf)$/i;
-type Dialog = 'export' | 'ai' | 'update' | 'assist' | 'library' | 'which';
+type Dialog = 'export' | 'ai' | 'update' | 'assist' | 'library' | 'which' | 'save';
 type Decal = { kind: 'raise' | 'cut'; depth: number };
 type VecJob = { title: string; items: V.Item[]; guide?: string; hint?: string; save(svg: string, items: V.Item[]): void; to2d?(items: V.Item[]): void };
 
@@ -37,7 +38,8 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [sel, setSel] = useState<string[]>([]);
   const [path, setPathState] = useState<string | null>(null), pathRef = useRef<string | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
+  type Kind = 'ok' | 'info' | 'warn' | 'err';
+  const [toast, setToast] = useState<{ text: string; kind: Kind; n: number } | null>(null);
   const panel = usePanel();
   const [cm3, setCm3] = useState<null | { x: number; y: number; id: string | null }>(null);
   const [hideIntro, setHideIntro] = useState(false), [renaming, setRenaming] = useState<string | null>(null);
@@ -74,8 +76,9 @@ export function App({ kernel }: { kernel: Kernel }) {
   const host = useRef<HTMLDivElement>(null), vp = useRef<Viewport | null>(null);
   const known = useRef<string | null>(null), chain = useRef(Promise.resolve());
 
-  const say = useCallback((text: string, bad = false) => setToast({ text, bad }), []);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.bad ? 6000 : 3000); return () => clearTimeout(t); }, [toast]);
+  /** Bildirim: true = hata; tür verilmezse metinden çıkarılır (kaydedildi, eklendi… başarı). */
+  const say = useCallback((text: string, kind: boolean | Kind = false) => setToast(t => ({ text, n: (t?.n ?? 0) + 1, kind: kind === true ? 'err' : kind === false ? (/kaydedildi|kopyalandı|kesildi|alındı|eklendi|yerleştirildi|güncellendi/i.test(text) ? 'ok' : 'info') : kind })), []);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.kind === 'err' ? 6000 : toast.kind === 'warn' ? 5000 : 3000); return () => clearTimeout(t); }, [toast]);
 
   const setDoc = useCallback((d: Doc) => { docRef.current = d; setDocState(d); }, []);
   const loadExternal = useCallback(async (p: string) => {
@@ -90,7 +93,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     chain.current = chain.current.then(async () => {
       if (pathRef.current !== p) return;
       const now = await os.stamp(p);
-      if (known.current && now && now !== known.current) { await loadExternal(p); say('Dosya dışarıda değişmişti; o sürüm yüklendi. Seninki için Ctrl+Z', true); return; }
+      if (known.current && now && now !== known.current) { await loadExternal(p); say('Dosya dışarıda değişmişti; o sürüm yüklendi. Seninki için Ctrl+Z', 'warn'); return; }
       const d = docRef.current;
       known.current = await os.writeText(p, serialize(d));
       if (d === docRef.current) setDirty(false);
@@ -116,7 +119,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     const need = new Set<string>(); const walk = (ns: Node[]) => ns.forEach(n => { if (n.type === 'text' && n.params.font) need.add(String(n.params.font)); if (n.children) walk(n.children); }); walk(doc.nodes);
     for (const k of need) if (!kernel.hasFont(k) && !tried.current.has(k)) {
       tried.current.add(k);
-      os.readFont(k).then(d => { if (d) { kernel.addFont(k, d); setFontTick(t => t + 1); } else say(`“${k.replace('|', ' ')}” yazı tipi bu bilgisayarda yok; Baloo kullanılıyor`, true); }, e => say(`Yazı tipi okunamadı: ${e?.message ?? e}`, true));
+      os.readFont(k).then(d => { if (d) { kernel.addFont(k, d); setFontTick(t => t + 1); } else say(`“${k.replace('|', ' ')}” yazı tipi bu bilgisayarda yok; Baloo kullanılıyor`, 'warn'); }, e => say(`Yazı tipi okunamadı: ${e?.message ?? e}`, true));
     }
   }, [doc, kernel, say]);
   const [built, vars] = useMemo<[Built[], Vars]>(() => [kernel.build(doc), resolveParams(doc.params)], [doc, kernel, fontTick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -129,8 +132,9 @@ export function App({ kernel }: { kernel: Kernel }) {
   const pickView = (d: Doc) => { const s = (d.sketch as Sketch | undefined)?.items?.length ?? 0, n = d.nodes.length; if (s && n) setDialog('which'); else setIs2d(!!s && !n); };
   const okToLeave = () => !dirty || confirm('Kaydedilmemiş değişiklikler silinsin mi?');
   const saveAs = async () => {
-    if (!os.desktop) { os.download('model.baseline', serialize(doc)); setDirty(false); return; }
-    const p = await os.pickSave('model.baseline'); if (!p) return;
+    flushSketch();
+    if (!os.desktop) { os.download('model.baseline', serialize(docRef.current)); setDirty(false); return; }
+    const p = await os.pickSave(path ? path.split(/[\/]/).pop()! : 'model.baseline'); if (!p) return;
     attach(p.endsWith('.baseline') ? p : p + '.baseline'); persist(); say('Kaydedildi; artık her değişiklik otomatik kaydedilir');
   };
   const saveDoc = async () => { flushSketch(); if (path) { persist(); say('Kaydedildi'); } else await saveAs(); };
@@ -199,7 +203,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   };
   const saveTemplate = async (name: string) => {
     const d = docRef.current, ids = sel.filter(id => d.nodes.some(n => n.id === id)), part: Doc = ids.length ? { ...d, nodes: d.nodes.filter(n => ids.includes(n.id)) } : d;
-    if (!part.nodes.length) { say('Kaydedilecek nesne yok', true); return; }
+    if (!part.nodes.length) { say('Kaydedilecek nesne yok', 'warn'); return; }
     const safe = name.replace(/[\\/:*?"<>|]/g, '_');
     await os.libWrite(`user:Şablonlarım/${safe}.baseline`, serialize(part));
     const png = vp.current?.snapshot(); if (png) await os.libWrite(`user:Şablonlarım/${safe}.png`, Uint8Array.from(atob(png.split(',')[1]), c => c.charCodeAt(0)));
@@ -336,10 +340,10 @@ export function App({ kernel }: { kernel: Kernel }) {
   keys.current = e => {
     if (vec || (e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
     const k = e.key.toLowerCase(), c = e.ctrlKey || e.metaKey;
-    if (is2d) { const f = c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : null; if (f) { e.preventDefault(); void f(); } return; }
+    if (is2d) { const f = c && k === 's' && e.shiftKey ? saveAs : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : null; if (f) { e.preventDefault(); void f(); } return; }
     if (k === 'tab' && !c && !e.altKey) { e.preventDefault(); panel.toggle(); return; }
     const act = c && k === 'a' ? selectAll : c && k === 'c' ? () => copySel(false) : c && k === 'x' ? () => copySel(true) : c && k === 'v' ? paste
-      : c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
+      : c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' && e.shiftKey ? saveAs : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
       : c && k === 'd' ? () => sel.length && run(sel.map(id => ({ op: 'duplicate', id }) as Command), true) : c && k === 'g' ? () => sel.length > 1 && group('linked')
       : k === 'escape' ? () => { setMode('edit'); setPop(null); } : !c && k === 'm' ? () => setMode(mode === 'measure' ? 'edit' : 'measure')
       : k === 'delete' || k === 'backspace' ? remove : !c && k === 'w' ? () => setTool('translate') : !c && k === 'e' ? () => setTool('rotate') : !c && k === 'r' ? () => setTool('scale') : !c && k === 'f' ? () => vp.current?.fit() : null;
@@ -355,39 +359,42 @@ export function App({ kernel }: { kernel: Kernel }) {
   const canSplit = !!node && top && !node.hole && node.mode !== 'split';
   const B = (p: { t: string; on: () => void; off?: boolean; active?: boolean; children: ReactNode }) => <button className={p.active ? 'ib active' : 'ib'} title={p.t} aria-label={p.t} aria-pressed={p.active} disabled={p.off} onClick={p.on}>{p.children}</button>;
   const paintTarget = mode === 'paint';
+  /** Sol panelin altındaki kart: yapay zekâ, tema, sürüm ve güncelleme. */
+  const sideCard = <div className="sidecard">
+    <button className="sc-row" onClick={() => setDialog('ai')}><Bot /><span>Yapay zekâ</span></button>
+    <button className="sc-row" onClick={() => setTheme(dark ? 'light' : 'dark')} title="Temayı değiştir">{dark ? <Moon /> : <Sun />}<span>{dark ? 'Dark' : 'Light'}</span><i className={dark ? 'sc-sw on' : 'sc-sw'} /></button>
+    <div className="sc-row sc-ver"><RefreshCw /><span>v{pkg.version}{upd && <small>Yeni: v{upd.version}</small>}</span><button className={upd ? 'tb primary sc-up' : 'tb sc-up'} onClick={() => setDialog('update')}>{upd ? 'Güncelle' : 'Denetle'}</button></div>
+  </div>;
 
   useEffect(() => { if (!cm3) return; const f = () => setCm3(null); setTimeout(() => addEventListener('pointerdown', f), 0); addEventListener('keydown', f); return () => { removeEventListener('pointerdown', f); removeEventListener('keydown', f); }; }, [cm3]);
   useEffect(() => { if (!pop) return; const f = () => setPop(null); addEventListener('click', f); return () => removeEventListener('click', f); }, [pop]);
   return <div style={{ '--rw': panel.collapsed ? '0px' : `${panel.width}px` } as React.CSSProperties} className={is2d ? 'app is2d' : 'app'} onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); const fs = await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))); if (is2d) vapi.current?.drop(fs); else importFiles(fs); }}>
-    <header>
-      <div className="h-left">
+    <header data-tauri-drag-region>
+      <div className="h-left" data-tauri-drag-region>
         <span className="logo"><Wordmark height={19} /></span>
         <div className="mode-sw" role="tablist" aria-label="Çalışma alanı">
           <button role="tab" aria-selected={is2d} className={is2d ? 'on' : ''} title="2D: vektör çizim sayfası" onClick={() => setIs2d(true)}>2D</button>
           <button role="tab" aria-selected={!is2d} className={!is2d ? 'on' : ''} title="3D: model" onClick={() => setIs2d(false)}>3D</button>
         </div>
-        <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
       </div>
-      <div className="h-mid">
+      <div className="h-mid" data-tauri-drag-region>
         <button className="tb" title="Yeni belge" onClick={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 />Yeni</button>
         <button className="tb" title="Aç (Ctrl+O)" onClick={openDoc}><FolderOpen />Aç</button>
-        <button className="tb" title="Kaydet (Ctrl+S)" onClick={saveDoc}><Save />Kaydet</button>
-        <button className="tb" title={is2d ? 'Resim (JPG, PNG, TIFF…), PDF, AI, SVG, DXF ekle. Sürükleyip bırakabilirsin.' : 'STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin.'} onClick={() => is2d ? vapi.current?.importPick() : importPick()}><FileUp />İçe aktar</button>
+        <button className="tb save-b" title={`${path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}${dirty ? ' · kaydedilmemiş değişiklik var' : ''} (Ctrl+S)`} onClick={() => { flushSketch(); setDialog('save'); }}><Save />Kaydet{dirty && <span className="dirty-dot" aria-label="Kaydedilmemiş değişiklik var" />}</button>
+        <button className="tb" title={is2d ? 'Resim (JPG, PNG, TIFF…), PDF, AI, SVG, DXF ekle. Sürükleyip bırakabilirsin.' : 'STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin.'} onClick={() => is2d ? vapi.current?.importPick() : importPick()}><Upload />İçe aktar</button>
         <div className="hmenu"><button className="tb primary" disabled={!is2d && !doc.nodes.length} onClick={() => is2d ? setExp2d(!exp2d) : setDialog('export')}><Download />Dışa aktar</button>
           {is2d && exp2d && <div className="hpop" onClick={() => setExp2d(false)}>
             {([['pdf-pages', 'PDF — her artboard ayrı sayfa', ''], ['pdf-one', 'PDF — tek sayfa', 'Tüm artboardlar tek sayfada'], ['ai', 'AI (Illustrator)', 'PDF uyumlu; Illustrator ve Corel açar'], ['svg-free', 'SVG', ''], ['png', 'PNG', 'Her artboard ayrı resim'], ['jpg', 'JPG', 'Her artboard ayrı resim'], ['dxf', 'DXF', 'Lazer için; katmanlar renge göre']] as const).map(([k, l, d]) => <button key={k} onClick={() => vapi.current?.exportAs(k)}>{l}{d && <small>{d}</small>}</button>)}
           </div>}</div>
       </div>
-      <div className="h-right">
-        <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
-        {upd ? <button className="ib upd" title={`Yeni sürüm var: ${upd.version}`} aria-label={`Yeni sürüm var: ${upd.version}`} onClick={() => setDialog('update')}><RefreshCw /><span className="upd-dot"><Download /></span></button>
-          : <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>}
-        <B t={dark ? 'Açık tema' : 'Koyu tema'} on={() => setTheme(dark ? 'light' : 'dark')}>{dark ? <Sun /> : <Moon />}</B>
+      <div className="h-right" data-tauri-drag-region>
+        {os.desktop && <WindowButtons close={() => { if (okToLeave()) void getCurrentWindow().close(); }} />}
       </div>
     </header>
     <aside className="left">
       <h2>Nesneler</h2>
       <div className="tree">{doc.nodes.length ? <Tree nodes={doc.nodes} sel={sel} built={built} pick={(id, add) => setSel(s => add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id])} hide={n => run([{ op: 'update', id: n.id, hidden: !n.hidden }])} rename={(n, name) => run([{ op: 'update', id: n.id, name }])} editing={renaming} setEditing={setRenaming} /> : <p className="hint">Henüz nesne yok.</p>}</div>
+      {sideCard}
     </aside>
     <main ref={host} onPointerDown={() => { if (!hideIntro) setHideIntro(true); }}>
       {!doc.nodes.length && !is2d && !hideIntro && <div className="empty3d" onPointerDown={e => e.stopPropagation()}><button className="ib x" aria-label="Kapat" title="Kapat" onClick={() => setHideIntro(true)}><X /></button><LogoIcon size={56} /><b>Modele başla</b><p>Alttaki araç kutusundan bir şekil ekle, bir STL / 3MF / OBJ / SVG dosyasını pencereye bırak ya da şablonlardan başla.</p><div className="row2"><button className="tb" onClick={() => setDialog('library')}>Şablonlar</button><button className="tb" onClick={() => setIs2d(true)}>2D çizime geç</button></div></div>}
@@ -452,17 +459,26 @@ export function App({ kernel }: { kernel: Kernel }) {
           onVector={() => editVector(node)} onSplit={() => startSplit(node)} onPins={() => editPins(node)} onTemplate={() => { const n = prompt('Şablon adı', node.name); if (n) void saveTemplate(n); }} onPaint={() => setMode('paint')} />
           : <DocPanel doc={doc} vars={vars} run={run} />}
     </aside>
-    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu', which: 'Belgeyi aç' }[dialog]}>
+    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu', which: 'Belgeyi aç', save: 'Kaydet' }[dialog]}>
       {dialog === 'export' && <ExportBox built={built} name={path?.split(/[\\/]/).pop()?.replace('.baseline', '') ?? 'model'} say={say} close={() => setDialog(null)} />}
       {dialog === 'ai' && <AiBox path={path} />}
       {dialog === 'update' && <UpdateBox known={upd} />}
+      {dialog === 'save' && <div className="savebox">
+        <p className="sv-name"><Save /><span><b>{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}</b><small>{path ? (dirty ? 'Kaydedilmemiş değişiklikler var' : 'Tüm değişiklikler kaydedildi') : 'Henüz bir dosyaya kaydedilmedi'}</small></span></p>
+        <div className="row2">
+          {path && <button className="tb primary" onClick={() => { setDialog(null); void saveDoc(); }}>Üzerine kaydet</button>}
+          <button className={path ? 'tb' : 'tb primary'} onClick={() => { setDialog(null); void saveAs(); }}>{path ? 'Farklı kaydet…' : 'Kaydet…'}</button>
+          <button className="tb" onClick={() => setDialog(null)}>Vazgeç</button>
+        </div>
+        <p className="hint">Kayıtlı bir belgede her değişiklik otomatik kaydedilir. Ctrl+S üzerine kaydeder, Ctrl+Shift+S farklı kaydeder.</p>
+      </div>}
       {dialog === 'which' && <><p>Bu belgede hem 3D model hem vektör çizim var. Hangisini açayım?</p><div className="row2"><button className="tb primary" onClick={() => { setDialog(null); setIs2d(false); }}>3D model</button><button className="tb" onClick={() => { setDialog(null); setIs2d(true); }}>Vektör çizim</button></div><p className="hint">Sonra soldaki 2D / 3D anahtarıyla geçebilirsin.</p></>}
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
     {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} onClose={() => setVec(null)} decal={vec.to2d ? decal : undefined} onDecal={setDecal} />}
     {ever2d && <VectorEditor key={sketchGen} kernel={kernel} title="" initial={[]} onClose={() => setIs2d(false)} free={{
-      sketch: (docRef.current.sketch as Sketch | undefined) ?? null, hidden: !is2d, api: vapi, onChange: onSketch,
+      sketch: (docRef.current.sketch as Sketch | undefined) ?? null, hidden: !is2d, api: vapi, onChange: onSketch, footer: sideCard,
       onToSurface: its => { if (!its.length) return; pendingSurface.current = its; setIs2d(false); setMode('surface'); say('Çizimi oturtmak için 3D modelde bir yüze tıkla'); },
       onInsert: (svgText, its, sk) => {
         const b = V.bounds(its); if (!b) return;
@@ -485,12 +501,21 @@ export function App({ kernel }: { kernel: Kernel }) {
         <button onClick={() => { setCm3(null); selectAll(); }}>Tümünü seç<small>Ctrl+A</small></button>
       </>}
     </div>}
-    {toast && <div className={toast.bad ? 'toast bad' : 'toast'} role="status">{toast.text}</div>}
+    {toast && <div key={toast.n} className={`toast t-${toast.kind}`} role={toast.kind === 'err' ? 'alert' : 'status'}>{{ ok: <CheckCircle2 />, info: <Info />, warn: <AlertTriangle />, err: <XCircle /> }[toast.kind]}<span>{toast.text}</span></div>}
     <span hidden>{freeX(0)}</span>
   </div>;
 }
 const inside = (doc: Doc, parent: string, id: string) => { const p = find(doc.nodes, parent)?.node; return !!p?.children && !!find(p.children, id); };
 
+function WindowButtons({ close }: { close(): void }) {
+  const [max, setMax] = useState(false);
+  useEffect(() => { const w = getCurrentWindow(); let off: (() => void) | undefined; void w.isMaximized().then(setMax); void w.onResized(() => { void w.isMaximized().then(setMax); }).then(u => { off = u; }); return () => off?.(); }, []);
+  return <div className="winbtns">
+    <button aria-label="Simge durumuna küçült" title="Küçült" onClick={() => void getCurrentWindow().minimize()}><Minus /></button>
+    <button aria-label={max ? 'Önceki boyut' : 'Tam ekran'} title={max ? 'Önceki boyut' : 'Tam ekran'} onClick={() => void getCurrentWindow().toggleMaximize()}>{max ? <Copy className="wb-rest" /> : <Square />}</button>
+    <button className="wb-close" aria-label="Kapat" title="Kapat" onClick={close}><X /></button>
+  </div>;
+}
 function Tree(p: { nodes: Node[]; sel: string[]; built: Built[]; pick(id: string, add: boolean): void; hide(n: Node): void; rename(n: Node, name: string): void; editing: string | null; setEditing(id: string | null): void }) {
   return <ul>{p.nodes.map(n => { const err = p.built.find(b => b.id === n.id)?.error; return <li key={n.id}>
     <div className={p.sel.includes(n.id) ? 'row on' : 'row'}>

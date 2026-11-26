@@ -1,6 +1,6 @@
 // Vektör düzenleyicinin yol modeli: alt yollar, düğümler ve tutamaçlar (mm, y aşağı).
 import type { ManifoldToplevel } from 'manifold-3d';
-import { css } from './color';
+import { css, mix } from './color';
 
 export interface Pt { x: number; y: number; ix?: number; iy?: number; ox?: number; oy?: number }
 export interface Sub { pts: Pt[]; closed: boolean }
@@ -20,7 +20,7 @@ export interface TextMeta {
 }
 export type ArrowKind = 'tri' | 'open' | 'dot' | 'square' | 'bar';
 export interface CharStyle { fill?: string; font?: string; size?: number }
-export interface Grad { type: 'linear' | 'radial'; angle: number; stops: { o: number; c: string }[] }
+export interface Grad { type: 'linear' | 'radial' | 'conic' | 'square'; angle: number; stops: { o: number; c: string }[] }
 export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number }
 export interface Item {
   id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta;
@@ -41,6 +41,27 @@ export interface Item {
   layer?: number;
   /** Açık çizgilerin uçlarında ok (başlangıç / bitiş) ve boyu (mm). */
   arrows?: { s?: ArrowKind; e?: ArrowKind; size?: number };
+}
+/** Gradientin t (0–1) noktasındaki rengi (ekran rengi). */
+export function gradAt(g: Grad, t: number): string {
+  const st = [...g.stops].sort((a, b) => a.o - b.o); if (!st.length) return '#000000';
+  if (t <= st[0].o) return css(st[0].c); if (t >= st[st.length - 1].o) return css(st[st.length - 1].c);
+  for (let i = 1; i < st.length; i++) if (t <= st[i].o) { const a = st[i - 1], b = st[i]; return mix(css(a.c), css(b.c), (t - a.o) / ((b.o - a.o) || 1)); }
+  return css(st[st.length - 1].c);
+}
+/** SVG ve PDF'in doğrudan çizemediği gradientler (konik, kare) için şekle kırpılacak renk bantları. */
+export function gradBands(it: Item): { d: string; c: string }[] {
+  const g = it.grad; if (!g || (g.type !== 'conic' && g.type !== 'square')) return [];
+  const b = bounds([{ ...it, stroke: null, grad: undefined }]); if (!b) return [];
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, hw = (b.x1 - b.x0) / 2, hh = (b.y1 - b.y0) / 2, out: { d: string; c: string }[] = [], f = (v: number) => r4(v);
+  if (g.type === 'conic') {
+    const N = 96, R = Math.hypot(hw, hh) * 1.1, a0 = g.angle * Math.PI / 180;
+    for (let k = 0; k < N; k++) { const a = a0 + k / N * Math.PI * 2 - 0.004, e = a0 + (k + 1) / N * Math.PI * 2 + 0.004; out.push({ d: `M${f(cx)} ${f(cy)}L${f(cx + R * Math.cos(a))} ${f(cy + R * Math.sin(a))}L${f(cx + R * Math.cos(e))} ${f(cy + R * Math.sin(e))}Z`, c: gradAt(g, (k + 0.5) / N) }); }
+  } else {
+    const N = 48;
+    for (let k = N; k > 0; k--) { const s = k / N; out.push({ d: `M${f(cx - hw * s)} ${f(cy - hh * s)}L${f(cx + hw * s)} ${f(cy - hh * s)}L${f(cx + hw * s)} ${f(cy + hh * s)}L${f(cx - hw * s)} ${f(cy + hh * s)}Z`, c: gradAt(g, (k - 0.5) / N) }); }
+  }
+  return out;
 }
 /** Aynı dolgulu ardışık alt yollar (harf renkleri için). */
 export function fillGroups(it: Item): { fill: string | null; subs: Sub[] }[] {
