@@ -7,7 +7,7 @@ export function ColorPicker({ value, mode, onChange, onClose }: { value: string 
   const [hsv, setHsv] = useState(() => C.rgb2hsv(...C.rgbOf(start)));
   const [cmyk, setCmyk] = useState<C.CMYK>(() => C.parseCmyk(C.toCmyk(start)));
   const box = useRef<HTMLDivElement>(null), root = useRef<HTMLDivElement>(null);
-  useEffect(() => { const f = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) onClose(); }; setTimeout(() => addEventListener('pointerdown', f), 0); return () => removeEventListener('pointerdown', f); }, [onClose]);
+  useEffect(() => { const f = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node) && !(e.target as Element).closest?.('[data-cp]')) onClose(); }; setTimeout(() => addEventListener('pointerdown', f), 0); return () => removeEventListener('pointerdown', f); }, [onClose]);
   const emitHsv = (h: number, s: number, v: number) => { setHsv([h, s, v]); const hex = C.hexOf(...C.hsv2rgb(h, s, v)); if (mode === 'cmyk') { const k = C.parseCmyk(C.toCmyk(hex)); setCmyk(k); onChange(C.fmtCmyk(k)); } else onChange(hex); };
   const emitCmyk = (k: C.CMYK) => { setCmyk(k); const c = C.fmtCmyk(k); setHsv(C.rgb2hsv(...C.rgbOf(c))); onChange(c); };
   const drag = (f: (x: number, y: number) => void) => (e: PE<HTMLDivElement>) => {

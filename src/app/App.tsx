@@ -12,6 +12,8 @@ import { Viewport, type Moved, type Surface, type Tool } from './viewport';
 import { Inspector, MultiPanel, DocPanel, PALETTE } from './Inspector';
 import { VectorEditor, loadItems } from './VectorEditor';
 import type { Sketch } from './vectorIO';
+import { Wordmark, LogoIcon } from './Logo';
+import { PanelGrip, usePanel } from './Tabs';
 import type { VectorApi } from './VectorEditor';
 import { Assistant, Library } from './Panels';
 import * as V from './vector';
@@ -36,10 +38,14 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [path, setPathState] = useState<string | null>(null), pathRef = useRef<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
+  const panel = usePanel();
+  const [cm3, setCm3] = useState<null | { x: number; y: number; id: string | null }>(null);
+  const [hideIntro, setHideIntro] = useState(false), [renaming, setRenaming] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>('translate');
   const [magnet, setMagnet] = useState(true), [symmetric, setSymmetric] = useState(false), [uniform, setUniform] = useState(false);
   const [mode, setMode] = useState<'edit' | 'surface' | 'paint' | 'measure'>('edit');
-  const [decal, setDecal] = useState<Decal>({ kind: 'raise', depth: 1 });
+  const [decal, setDecalState] = useState<Decal>({ kind: 'raise', depth: 1 }), decalRef = useRef(decal);
+  const setDecal = (d: Decal) => { decalRef.current = d; setDecalState(d); };
   const [brush, setBrush] = useState(0), [paintColor, setPaintColor] = useState('#e5484d');
   const [overhang, setOverhang] = useState(false);
   // açılışta ve 6 saatte bir yeni sürüm var mı bak
@@ -211,7 +217,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   useEffect(() => {
     const v = new Viewport(host.current!, {
       select: (id, add) => setSel(s => !id ? (add ? s : []) : add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id]),
-      moved: onMoved, surface: s => handlers.current.surface(s), paint: p => handlers.current.paint(p),
+      moved: onMoved, surface: s => handlers.current.surface(s), paint: p => handlers.current.paint(p), menu: m => setCm3(m),
     });
     vp.current = v; v.setTheme(document.documentElement.dataset.theme === 'dark'); return () => { v.dispose(); vp.current = null; };
   }, [onMoved]);
@@ -245,7 +251,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       save: (svg, items) => {
         const b = V.bounds(items); if (!b) return;
         const N = s.n, X = s.x, Y = s.y, M = [[X[0], Y[0], N[0]], [X[1], Y[1], N[1]], [X[2], Y[2], N[2]]], rot = eulerOf(M).map(r3) as V3;
-        const depth = decal.depth, cut = decal.kind === 'cut', embed = cut ? depth : 0.2, h = cut ? depth + 0.6 : depth + embed;
+        const depth = decalRef.current.depth, cut = decalRef.current.kind === 'cut', embed = cut ? depth : 0.2, h = cut ? depth + 0.6 : depth + embed;
         const pos = s.origin.map((o, i) => r3(o - N[i] * embed)) as V3;
         const effects = [];
         if (!s.flat) { // eğri yüzey: çizimin altındaki yüzey yüksekliği
@@ -331,6 +337,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     if (vec || (e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
     const k = e.key.toLowerCase(), c = e.ctrlKey || e.metaKey;
     if (is2d) { const f = c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : null; if (f) { e.preventDefault(); void f(); } return; }
+    if (k === 'tab' && !c && !e.altKey) { e.preventDefault(); panel.toggle(); return; }
     const act = c && k === 'a' ? selectAll : c && k === 'c' ? () => copySel(false) : c && k === 'x' ? () => copySel(true) : c && k === 'v' ? paste
       : c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
       : c && k === 'd' ? () => sel.length && run(sel.map(id => ({ op: 'duplicate', id }) as Command), true) : c && k === 'g' ? () => sel.length > 1 && group('linked')
@@ -349,11 +356,12 @@ export function App({ kernel }: { kernel: Kernel }) {
   const B = (p: { t: string; on: () => void; off?: boolean; active?: boolean; children: ReactNode }) => <button className={p.active ? 'ib active' : 'ib'} title={p.t} aria-label={p.t} aria-pressed={p.active} disabled={p.off} onClick={p.on}>{p.children}</button>;
   const paintTarget = mode === 'paint';
 
+  useEffect(() => { if (!cm3) return; const f = () => setCm3(null); setTimeout(() => addEventListener('pointerdown', f), 0); addEventListener('keydown', f); return () => { removeEventListener('pointerdown', f); removeEventListener('keydown', f); }; }, [cm3]);
   useEffect(() => { if (!pop) return; const f = () => setPop(null); addEventListener('click', f); return () => removeEventListener('click', f); }, [pop]);
-  return <div className={is2d ? 'app is2d' : 'app'} onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); const fs = await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))); if (is2d) vapi.current?.drop(fs); else importFiles(fs); }}>
+  return <div style={{ '--rw': panel.collapsed ? '0px' : `${panel.width}px` } as React.CSSProperties} className={is2d ? 'app is2d' : 'app'} onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); const fs = await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))); if (is2d) vapi.current?.drop(fs); else importFiles(fs); }}>
     <header>
       <div className="h-left">
-        <b className="logo">Baseline</b>
+        <span className="logo"><Wordmark height={19} /></span>
         <div className="mode-sw" role="tablist" aria-label="Çalışma alanı">
           <button role="tab" aria-selected={is2d} className={is2d ? 'on' : ''} title="2D: vektör çizim sayfası" onClick={() => setIs2d(true)}>2D</button>
           <button role="tab" aria-selected={!is2d} className={!is2d ? 'on' : ''} title="3D: model" onClick={() => setIs2d(false)}>3D</button>
@@ -379,14 +387,18 @@ export function App({ kernel }: { kernel: Kernel }) {
     </header>
     <aside className="left">
       <h2>Nesneler</h2>
-      <div className="tree">{doc.nodes.length ? <Tree nodes={doc.nodes} sel={sel} built={built} pick={(id, add) => setSel(s => add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id])} hide={n => run([{ op: 'update', id: n.id, hidden: !n.hidden }])} /> : <p className="hint">Alttaki araç kutusundan bir şekil ekle, “İçe aktar” ile STL/3MF/OBJ/SVG aç ya da dosyayı pencereye bırak.</p>}</div>
+      <div className="tree">{doc.nodes.length ? <Tree nodes={doc.nodes} sel={sel} built={built} pick={(id, add) => setSel(s => add ? (s.includes(id) ? s.filter(x => x !== id) : [...s, id]) : [id])} hide={n => run([{ op: 'update', id: n.id, hidden: !n.hidden }])} rename={(n, name) => run([{ op: 'update', id: n.id, name }])} editing={renaming} setEditing={setRenaming} /> : <p className="hint">Henüz nesne yok.</p>}</div>
     </aside>
-    <main ref={host}>
+    <main ref={host} onPointerDown={() => { if (!hideIntro) setHideIntro(true); }}>
+      {!doc.nodes.length && !is2d && !hideIntro && <div className="empty3d" onPointerDown={e => e.stopPropagation()}><button className="ib x" aria-label="Kapat" title="Kapat" onClick={() => setHideIntro(true)}><X /></button><LogoIcon size={56} /><b>Modele başla</b><p>Alttaki araç kutusundan bir şekil ekle, bir STL / 3MF / OBJ / SVG dosyasını pencereye bırak ya da şablonlardan başla.</p><div className="row2"><button className="tb" onClick={() => setDialog('library')}>Şablonlar</button><button className="tb" onClick={() => setIs2d(true)}>2D çizime geç</button></div></div>}
       <div className="views">
         {([['iso', 'Perspektif'], ['top', 'Üst'], ['front', 'Ön'], ['right', 'Sağ']] as const).map(([v, l]) => <button key={v} onClick={() => vp.current?.view(v)}>{l}</button>)}
         <button title="Sığdır (F)" aria-label="Sığdır" onClick={() => vp.current?.fit()}><Maximize /></button>
         <button className={overhang ? 'on' : ''} title="Destek gereken yerleri göster" aria-pressed={overhang} onClick={() => setOverhang(!overhang)}>Destek</button>
       </div>
+      {(() => { if (!sel.length) return null; const bs = sel.map(bounds).filter((b): b is NonNullable<typeof b> => !!b); if (!bs.length) return null;
+        const lo = [0, 1, 2].map(i => Math.min(...bs.map(b => b.min[i]))), hi = [0, 1, 2].map(i => Math.max(...bs.map(b => b.max[i]))), f = (v: number) => (Math.round(v * 10) / 10).toLocaleString('tr-TR');
+        return <div className="dimstrip">{sel.length > 1 && <span className="ds-n">{sel.length} nesne · toplam</span>}<span><em>En</em> {f(hi[0] - lo[0])}</span><span><em>Boy</em> {f(hi[1] - lo[1])}</span><span><em>Yükseklik</em> {f(hi[2] - lo[2])} mm</span><span className="ds-pos">X {f((lo[0] + hi[0]) / 2)} · Y {f((lo[1] + hi[1]) / 2)}</span></div>; })()}
       <div className="dock" onClick={e => e.stopPropagation()}>
         {pop && <div className="pop" role="dialog">
           {pop === 'basic' || pop === 'mech' ? <><b>{pop === 'basic' ? 'Şekiller' : 'Mekanik parçalar'}</b><div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === pop).map(([t, s]) => <button key={t} title={s.label} onClick={() => { addShape(t); setPop(null); }}>{ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div></> : null}
@@ -411,7 +423,6 @@ export function App({ kernel }: { kernel: Kernel }) {
         <D t="Şekiller" active={pop === 'basic'} on={() => setPop(pop === 'basic' ? null : 'basic')}><Shapes /><ChevronUp className="up" /></D>
         <D t="Mekanik parçalar" active={pop === 'mech'} on={() => setPop(pop === 'mech' ? null : 'mech')}><Cog /><ChevronUp className="up" /></D>
         <i />
-        <D t="Yüzeye çiz: yüze tıkla, yazı / şekil / SVG ekle" active={mode === 'surface'} on={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick /></D>
         <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>
         <D t="Ölç (M)" active={mode === 'measure'} on={() => setMode(mode === 'measure' ? 'edit' : 'measure')}><Ruler /></D>
         <i />
@@ -420,10 +431,8 @@ export function App({ kernel }: { kernel: Kernel }) {
       </div>
       {mode === 'measure' && <div className="banner"><b>Ölç</b><span>İki noktaya tıkla; köşeye ve kenar ortasına yapışır (Shift: serbest). Yeni ölçü için tekrar tıkla.</span><button onClick={() => { setMode('edit'); setTimeout(() => setMode('measure'), 0); }}>Temizle</button><button className="ib" aria-label="Kapat" onClick={() => setMode('edit')}><X /></button></div>}
       {mode === 'surface' && <div className="banner">
-        <b>Bir yüzeye tıkla</b><span>Açılan çizim alanında yazı, şekil ya da SVG ekle; kaydedince yüzeye oturur.</span>
-        <div className="seg"><button className={decal.kind === 'raise' ? 'on' : ''} onClick={() => setDecal({ ...decal, kind: 'raise' })}>Kabartma</button><button className={decal.kind === 'cut' ? 'on' : ''} onClick={() => setDecal({ ...decal, kind: 'cut' })}>Oyma</button></div>
-        <label className="mini">{decal.kind === 'cut' ? 'Derinlik' : 'Yükseklik'} <input type="number" min={0.2} step={0.2} value={decal.depth} onChange={e => setDecal({ ...decal, depth: Math.max(0.1, +e.target.value || 0.1) })} /> mm</label>
-        <button className="ib" aria-label="Kapat" onClick={() => setMode('edit')}><X /></button>
+        <b>Bir yüze tıkla</b><span>Çizim, tıkladığın yüze oturtulmak üzere açılır.</span>
+        <button className="ib" aria-label="Vazgeç" onClick={() => { pendingSurface.current = null; setMode('edit'); }}><X /></button>
       </div>}
       {paintTarget && <div className="banner">
         <b>Boya</b>
@@ -433,7 +442,8 @@ export function App({ kernel }: { kernel: Kernel }) {
         <button className="ib" aria-label="Kapat" onClick={() => setMode('edit')}><X /></button>
       </div>}
     </main>
-    <aside className="right">
+    <aside className={panel.collapsed ? 'right folded' : 'right'}>
+      <PanelGrip />
       {sel.length > 1 ? <MultiPanel count={sel.length} top={top} run={c => run(c, true)} sel={sel} bounds={bounds} />
         : node ? <Inspector key={node.id} node={node} vars={vars} run={run} isTop={doc.nodes.includes(node)} error={built.find(b => b.id === node.id)?.error}
           dims={(() => { const b = bounds(node.id); return b ? [0, 1, 2].map(i => b.max[i] - b.min[i]) : null; })()} local={doc.nodes.includes(node) ? localDims(node.id) : null}
@@ -450,7 +460,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
-    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} onClose={() => setVec(null)} />}
+    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} onClose={() => setVec(null)} decal={vec.to2d ? decal : undefined} onDecal={setDecal} />}
     {ever2d && <VectorEditor key={sketchGen} kernel={kernel} title="" initial={[]} onClose={() => setIs2d(false)} free={{
       sketch: (docRef.current.sketch as Sketch | undefined) ?? null, hidden: !is2d, api: vapi, onChange: onSketch,
       onToSurface: its => { if (!its.length) return; pendingSurface.current = its; setIs2d(false); setMode('surface'); say('Çizimi oturtmak için 3D modelde bir yüze tıkla'); },
@@ -462,16 +472,30 @@ export function App({ kernel }: { kernel: Kernel }) {
         } catch (e) { say((e as Error).message, true); }
       },
     }} />}
+    {cm3 && <div className="vcm" style={{ left: Math.min(cm3.x, innerWidth - 230), top: Math.min(cm3.y, innerHeight - 300) }} onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}>
+      {cm3.id ? <>
+        <button onClick={() => { setCm3(null); vp.current?.surfaceAtMenu(); }} disabled={!vp.current?.hasMenuFace()}>Yüzeye çiz<small>bu yüze yazı / şekil</small></button><i />
+        <button onClick={() => { setCm3(null); run(sel.map(id => ({ op: 'duplicate', id }) as Command), true); }}>Çoğalt<small>Ctrl+D</small></button>
+        <button onClick={() => { setCm3(null); copySel(false); }}>Kopyala<small>Ctrl+C</small></button>
+        <button onClick={() => { setCm3(null); run(sel.map(id => ({ op: 'place', id, on: 'plate' }) as Command)); }} disabled={!top}>Tablaya oturt</button>
+        <button onClick={() => { setCm3(null); const n = find(doc.nodes, cm3.id!)?.node; if (n) run([{ op: 'update', id: n.id, hidden: true }]); }}>Gizle</button>
+        <button onClick={() => { setCm3(null); remove(); }}>Sil<small>Delete</small></button>
+      </> : <>
+        <button onClick={() => { setCm3(null); void paste(); }}>Yapıştır<small>Ctrl+V</small></button>
+        <button onClick={() => { setCm3(null); selectAll(); }}>Tümünü seç<small>Ctrl+A</small></button>
+      </>}
+    </div>}
     {toast && <div className={toast.bad ? 'toast bad' : 'toast'} role="status">{toast.text}</div>}
     <span hidden>{freeX(0)}</span>
   </div>;
 }
 const inside = (doc: Doc, parent: string, id: string) => { const p = find(doc.nodes, parent)?.node; return !!p?.children && !!find(p.children, id); };
 
-function Tree(p: { nodes: Node[]; sel: string[]; built: Built[]; pick(id: string, add: boolean): void; hide(n: Node): void }) {
+function Tree(p: { nodes: Node[]; sel: string[]; built: Built[]; pick(id: string, add: boolean): void; hide(n: Node): void; rename(n: Node, name: string): void; editing: string | null; setEditing(id: string | null): void }) {
   return <ul>{p.nodes.map(n => { const err = p.built.find(b => b.id === n.id)?.error; return <li key={n.id}>
     <div className={p.sel.includes(n.id) ? 'row on' : 'row'}>
-      <button className="name" title={err} onClick={e => p.pick(n.id, e.shiftKey || e.ctrlKey)}><span className="dot" style={{ background: n.hole ? 'repeating-linear-gradient(45deg,#888 0 2px,#fff 2px 4px)' : n.color || '#bbb' }} />{n.name}{n.children ? <small>{n.mode === 'fused' ? 'birleşik' : n.mode === 'split' ? 'bölme' : 'grup'}</small> : null}{n.effects?.length ? <small>✦</small> : null}{err ? <small className="err">hata</small> : null}</button>
+      {p.editing === n.id ? <input className="rename" autoFocus defaultValue={n.name} onBlur={e => { const v = e.target.value.trim(); if (v && v !== n.name) p.rename(n, v); p.setEditing(null); }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') p.setEditing(null); }} /> :
+      <button className="name" title={err ?? 'Çift tıkla: yeniden adlandır'} onDoubleClick={() => p.setEditing(n.id)} onClick={e => p.pick(n.id, e.shiftKey || e.ctrlKey)}><span className="dot" style={{ background: n.hole ? 'repeating-linear-gradient(45deg,#888 0 2px,#fff 2px 4px)' : n.color || '#bbb' }} />{n.name}{n.children ? <small>{n.mode === 'fused' ? 'birleşik' : n.mode === 'split' ? 'bölme' : 'grup'}</small> : null}{n.effects?.length ? <small>✦</small> : null}{err ? <small className="err">hata</small> : null}</button>}
       <button className="eye" aria-label={n.hidden ? 'Göster' : 'Gizle'} onClick={() => p.hide(n)}>{n.hidden ? <EyeOff /> : <Eye />}</button>
     </div>
     {n.children && <Tree {...p} nodes={n.children} />}

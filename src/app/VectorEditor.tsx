@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject, type Point
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter,
   ArrowDownToLine, ArrowUpToLine, Box, ChevronUp, Combine, Copy, Crosshair, Eraser, Eye, EyeOff, FileDown, FileUp, FlipHorizontal2, FlipVertical2, Group, Hand, ImageUp, Lock, LockOpen,
-  Magnet, Maximize, Printer, PrinterX, Merge, MousePointer2, PenTool, Pencil, Pipette, Plus, Redo2, RotateCcw, RotateCw, Ruler, Scissors, Shapes, Spline, SquaresExclude, SquaresIntersect, SquaresSubtract, Trash2, Type, Undo2, Ungroup, X, ZoomIn,
+  Magnet, Maximize, Printer, PrinterX, Palette, PenLine, Move, Sparkles, Frame, Send, Merge, MousePointer2, PenTool, Pencil, Pipette, Plus, Redo2, RotateCcw, RotateCw, Ruler, Scissors, Shapes, Spline, SquaresExclude, SquaresIntersect, SquaresSubtract, Trash2, Type, Undo2, Ungroup, X, ZoomIn,
 } from 'lucide-react';
 import type { Kernel } from '../core/kernel';
 import { plainPaths } from '../core/svg';
@@ -14,6 +14,8 @@ import * as C from './color';
 import * as os from './platform';
 import { FontPicker } from './FontPicker';
 import { ColorPicker } from './ColorPicker';
+import { Card } from './Inspector';
+import { Tabs, Fold, PanelGrip, usePanel } from './Tabs';
 
 type Tool = 'select' | 'node' | 'knife' | 'eraser' | 'draw' | 'pen' | 'shape' | 'text' | 'dim' | 'pick' | 'zoom' | 'pan';
 type Sel = { item: number; sub: number; i: number };
@@ -25,6 +27,9 @@ const unText = (b: V.Item[], id: number) => { const it = b.find(x => x.id === id
 const PRESETS: [string, number, number][] = [['A3', 297, 420], ['A4', 210, 297], ['A5', 148, 210], ['A6', 105, 148], ['Kartvizit', 85, 55], ['Kare 100', 100, 100]];
 const DASHES: [string, number[]][] = [['Düz', []], ['Kesikli', [2, 1]], ['Uzun kesik', [4, 1.5]], ['Noktalı', [0.3, 0.8]], ['Kesik-nokta', [3, 1, 0.3, 1]]];
 const SHAPE_KEYS: Record<string, string> = { F6: 'rect', F7: 'ellipse', y: 'polygon' };
+const ARROWS: [string, string][] = [['', 'Yok'], ['tri', 'Dolu ok ▶'], ['open', 'Açık ok ›'], ['dot', 'Nokta ●'], ['square', 'Kare ■'], ['bar', 'Çizgi |']];
+const FX_LABEL: Record<string, string> = { contour: 'Kontür', corners: 'Köşeler: pah / yuvarla', env: 'Zarf / bükme', blend: 'Geçiş (blend)', pattern: 'Desen oluştur', clip: 'PowerClip', path: 'Yazıyı yola oturt', trace: 'Vektöre çevir', opacity: 'Şeffaflık', shadow: 'Gölge' };
+const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString('tr-TR');
 
 /** SVG metnini düzenleyici öğelerine çevirir; width > 0 ise o genişliğe ölçekleyip ortalar (SVG şekliyle aynı). */
 export function loadItems(svg: string, width: number): V.Item[] {
@@ -53,9 +58,10 @@ async function imageData(name: string, data: Uint8Array): Promise<{ src: string;
   const bmp = await createImageBitmap(blob), src = await new Promise<string>(res => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.readAsDataURL(blob); });
   const out = { src, w: bmp.width, h: bmp.height }; bmp.close(); return out;
 }
-interface Props { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; note?: string; onSave?(svg: string, items: V.Item[]): void; onClose(): void; free?: FreeMode; onSendTo2d?(items: V.Item[]): void }
+export interface Decal { kind: 'raise' | 'cut'; depth: number }
+interface Props { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; note?: string; onSave?(svg: string, items: V.Item[]): void; onClose(): void; free?: FreeMode; onSendTo2d?(items: V.Item[]): void; decal?: Decal; onDecal?(d: Decal): void }
 
-export function VectorEditor({ kernel, title, initial, guide, note, onSave, onClose, free, onSendTo2d }: Props) {
+export function VectorEditor({ kernel, title, initial, guide, note, onSave, onClose, free, onSendTo2d, decal, onDecal }: Props) {
   const isFree = !!free, hidden = !!free?.hidden;
   const [assets, setAssets] = useState<Record<string, string>>(free?.sketch?.assets ?? {});
   const [layers, setLayers] = useState<IO.Layer[]>(() => free?.sketch?.layers?.length ? free.sketch.layers : [{ id: 1, name: 'Katman 1' }]);
@@ -94,7 +100,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const [edit, setEdit] = useState<{ id: number; caret: number; a: number; b: number } | null>(null);
   const [picked, setPicked] = useState<Partial<V.Item> | null>(null);
   const [eraser, setEraser] = useState(1.5);
-  const [menu, setMenu] = useState<null | 'shapes' | 'export' | 'import' | 'board'>(null);
+  const [menu, setMenu] = useState<null | 'shapes' | 'export' | 'import' | 'board' | 'send'>(null);
+  const dragRow = useRef<number[] | null>(null), [dropAt, setDropAt] = useState<string | null>(null);
   const [trace, setTrace] = useState<null | { src: string; bmp: ImageBitmap; from: number }>(null);
   const [tracePrev, setTracePrev] = useState<V.Item[] | null>(null), [traceDel, setTraceDel] = useState(false), [traceBusy, setTraceBusy] = useState(false);
   const [gStop, setGStop] = useState(0), [patGap, setPatGap] = useState(2);
@@ -109,7 +116,9 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const [step, setStep] = useState({ n: 3, dx: 10, dy: 0 });
   const [ct, setCt] = useState({ dist: 2, steps: 1, dir: 'out' as 'out' | 'in', filled: false });
   const [blendN, setBlendN] = useState(5);
-  const [cm, setCm] = useState<null | { x: number; y: number; id?: number; guide?: number }>(null);
+  const [fxKeys, setFxKeys] = useState<string[]>([]), [fxFold, setFxFold] = useState<string[]>([]);
+  const panel = usePanel();
+  const [cm, setCm] = useState<null | { x: number; y: number; id?: number; guide?: number; node?: Sel }>(null);
   const [selGuide, setSelGuide] = useState<number | null>(null);
   const [snapP, setSnapP] = useState<P | null>(null);
   const rightPan = useRef(false);
@@ -147,7 +156,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const live = items.filter(i => !isHid(i));
   /** Dışa aktarılacaklar: görünür ve “yazdırılmasın” olmayan katmanlardakiler. */
   const ordered = layers.length > 1 ? layers.flatMap(l => items.filter(i => layerOf(i)?.id === l.id)) : items;
-  const printable = (list: V.Item[]) => (layers.length > 1 ? layers.flatMap(l => list.filter(i => layerOf(i)?.id === l.id)) : list).filter(i => !isHid(i) && !layerOf(i)?.noPrint).map(i => i.hidden ? i : { ...i, hidden: undefined });
+  const printable = (list: V.Item[]) => O.withArrows((layers.length > 1 ? layers.flatMap(l => list.filter(i => layerOf(i)?.id === l.id)) : list).filter(i => !isHid(i) && !layerOf(i)?.noPrint).map(i => i.hidden ? i : { ...i, hidden: undefined }));
   const res = (): IO.Res => ({ assets, patterns });
   /** Grup / kap birimleri (hizalama, dağıtma için). */
   const units = (ids: number[]) => { const m = new Map<string, number[]>(); for (const it of items.filter(i => ids.includes(i.id))) { const k = it.group !== undefined ? 'g' + it.group : it.clip !== undefined ? 'i' + it.clip : 'i' + it.id; m.set(k, [...(m.get(k) ?? []), it.id]); } return [...m.values()]; };
@@ -232,6 +241,11 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const cloneItems = (list: V.Item[], f: (x: number, y: number) => P = (x, y) => [x, y]) => {
     const ids = new Map(list.map(i => [i.id, V.newId()])), gs = new Map<number, number>();
     return list.map(i => ({ ...V.mapItem(i, f), id: ids.get(i.id)!, group: i.group === undefined ? undefined : gs.get(i.group) ?? (gs.set(i.group, V.newId()), gs.get(i.group)!), clip: i.clip === undefined ? undefined : ids.get(i.clip) ?? i.clip }));
+  };
+  /** Katmanlar panelinde sürüklenen satırları hedef katmana (ve hedef nesnenin üstüne) taşır. */
+  const moveRows = (layerId: number, above: number | null) => {
+    const ids = dragRow.current; dragRow.current = null; setDropAt(null); if (!ids?.length) return;
+    setItems(a => { const moving = a.filter(x => ids.includes(x.id)).map(x => ({ ...x, layer: layerId })), rest = a.filter(x => !ids.includes(x.id)); let at2 = above !== null ? rest.findIndex(x => x.id === above) + 1 : rest.length; if (above === null) { const last = rest.map((x, k) => [x, k] as const).filter(([x]) => layerOf(x)?.id === layerId).pop(); at2 = last ? last[1] + 1 : rest.length; } return [...rest.slice(0, at2), ...moving, ...rest.slice(at2)]; });
   };
   const copyItems = () => { clipb.current = itemsRef.current.filter(i => sel.includes(i.id)); };
   const pasteItems = () => { if (!clipb.current.length) return; const n = cloneItems(clipb.current).map(i => ({ ...i, layer: isFree ? activeLayer : i.layer })); setItems(a => [...a, ...n]); setSel(n.map(i => i.id)); };
@@ -452,9 +466,9 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   };
   const insert3d = () => {
     const src = sel.length ? itemsRef.current.filter(i => sel.includes(i.id)) : itemsRef.current;
-    try { const flat = O.flattenClips(W, src); if (!flat.length) return alert('3B’ye alınacak çizim yok'); free!.onInsert(V.toSvg(flat), flat, sketch()); } catch (e) { alert((e as Error).message); }
+    try { const flat = O.flattenClips(W, O.withArrows(src)); if (!flat.length) return alert('3B’ye alınacak çizim yok'); free!.onInsert(V.toSvg(flat), flat, sketch()); } catch (e) { alert((e as Error).message); }
   };
-  const saveSurface = () => { finishPen(); endEdit(); try { const flat = O.flattenClips(W, itemsRef.current); onSave?.(V.toSvg(flat), flat); } catch (e) { alert((e as Error).message); } };
+  const saveSurface = () => { finishPen(); endEdit(); try { const flat = O.flattenClips(W, O.withArrows(itemsRef.current)); onSave?.(V.toSvg(flat), flat); } catch (e) { alert((e as Error).message); } };
   const addBoard = (name: string, w: number, h: number) => { const r = boards.length ? Math.max(...boards.map(b => b.x + b.w)) + 20 : 0, y = boards[0]?.y ?? 0, b = { id: V.newId(), name, x: r, y, w, h }; setBoards(bs => [...bs, b]); setSelBoard(b.id); setMenu(null); fitTo({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h }); };
 
   // --- yazı düzenleme (ekranda) ---
@@ -557,7 +571,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     const tick = (p: P): V.Sub => ({ closed: false, pts: [{ x: p[0] - nx * t, y: p[1] - ny * t }, { x: p[0] + nx * t, y: p[1] + ny * t }] });
     let deg = ang * 180 / Math.PI; if (deg > 90 || deg < -90) deg += 180;
     const mx = (a[0] + b[0]) / 2 - nx * 1.2 * Math.sign(Math.cos(ang) || 1), my = (a[1] + b[1]) / 2 - ny * 1.2 * Math.sign(Math.cos(ang) || 1);
-    add({ subs: [{ closed: false, pts: [{ x: a[0], y: a[1] }, { x: b[0], y: b[1] }] }, tick(a), tick(b)], fill: null, stroke: col, sw: 0.2, even: false, fixedStroke: true, group: g, name: 'Ölçü çizgisi' },
+    void tick; add({ subs: [{ closed: false, pts: [{ x: a[0], y: a[1] }, { x: b[0], y: b[1] }] }], fill: null, stroke: col, sw: 0.2, even: false, fixedStroke: true, group: g, name: 'Ölçü çizgisi', arrows: { s: 'tri', e: 'tri', size: 1.6 } },
       { ...makeText({ value: `${L.toFixed(1)} mm`, size: 2.6, font: textDef.font, x: mx, y: my, rot: deg, align: 'center' }, col), group: g, name: 'Ölçü' });
     setToolRaw('select');
   };
@@ -633,6 +647,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       setItems(b, first); first = false;
     };
   };
+  const delNodes = (list: Sel[]) => { setItems(a => { const b = clone(a); for (const n of [...list].sort((p2, q) => q.i - p2.i)) { const s2 = b.find(x => x.id === n.item)?.subs[n.sub]; if (s2) { s2.pts.splice(n.i, 1); unText(b, n.item); } } return b.map(it => ({ ...it, subs: it.subs.filter(q => q.pts.length > 1) })).filter(it => it.subs.length || it.text); }); setNodes([]); };
   const nodeDouble = (n: Sel) => setItems(a => { const b = clone(a), s = unText(b, n.item).subs[n.sub], p = s.pts[n.i], m = s.pts.length; if (p.ix !== undefined || p.ox !== undefined) { delete p.ix; delete p.iy; delete p.ox; delete p.oy; } else { const pa = s.pts[(n.i + m - 1) % m], pb = s.pts[(n.i + 1) % m], tx = (pb.x - pa.x) / 6, ty = (pb.y - pa.y) / 6; p.ix = p.x - tx; p.iy = p.y - ty; p.ox = p.x + tx; p.oy = p.y + ty; } return b; });
   const segDown = (n: Sel, e: PE) => { e.stopPropagation(); setSegs(s => e.shiftKey || s.length === 1 ? (s.some(q => q.item === n.item && q.sub === n.sub && q.i === n.i) ? s.filter(q => !(q.item === n.item && q.sub === n.sub && q.i === n.i)) : [...s.slice(-1), n]) : [n]); setNodes([]); };
   const segDouble = (n: Sel, e: React.MouseEvent) => { const [x, y] = at(e); setItems(a => { const b = clone(a), s = unText(b, n.item).subs[n.sub]; V.insertAt(s, n.i, V.nearestT(s.pts[n.i], s.pts[(n.i + 1) % s.pts.length], x, y)); return b; }); setSegs([]); };
@@ -702,6 +717,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     else if ((key === 'delete' || key === 'backspace') && selGuide !== null && !sel.length) run(() => { setGuides(g => g.filter((_, k) => k !== selGuide)); setSelGuide(null); });
     else if (key === 'delete' || key === 'backspace') run(remove);
     else if (key === 'enter') run(finishPen);
+    else if (key === 'tab' && !c && !e.altKey) run(() => panel.toggle());
     else if (key === 'escape') { if (cm) setCm(null); else if (pen) finishPen(); else if (menu) setMenu(null); else { setSel([]); setNodes([]); setSegs([]); setPicked(null); } }
     else if (e.key === 'F4') run(fitAll);
     else if (e.key === 'F2' && e.shiftKey) run(() => fitTo(sb));
@@ -756,6 +772,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
         : <>{groups.map((g, k) => <path key={k} d={g.subs.map(V.subD).join('')} fill={C.css(g.fill)} fillRule={it.even ? 'evenodd' : 'nonzero'} {...ev} style={{ pointerEvents: pe, cursor: cur }} />)}{it.stroke && <path d={d} fill="none" {...st} style={{ pointerEvents: 'none' }} />}</>;
       if (!it.fill && it.clip === undefined) body = <>{body}<path d={d} fill="none" stroke="transparent" strokeWidth={8 * px} pointerEvents="stroke" {...ev} /></>;
     }
+    if (it.arrows) body = <>{body}{O.arrowItems(it).map((a, k) => <path key={'a' + k} d={V.itemD(a)} fill={a.fill ? C.css(a.fill) : 'none'} stroke={a.stroke ? C.css(a.stroke) : 'none'} strokeWidth={a.sw} strokeLinejoin={a.join ?? 'round'} strokeLinecap={a.cap ?? 'round'} style={{ pointerEvents: 'none' }} />)}</>;
     return <g key={it.id} clipPath={it.clip !== undefined ? `url(#vcl${it.clip})` : undefined} opacity={isFree || it.img ? it.opacity : undefined} filter={isFree && it.shadow ? `url(#vsh${it.id})` : undefined}>{body}</g>;
   };
   /** Corel tarzı döndürme oku: köşede dışa bakan kavisli çift ok. */
@@ -774,12 +791,14 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       <path className="vrot" d={`M${a[0]} ${a[1]}L${b[0]} ${b[1]}`} strokeWidth={2 * px} /><path className="vroth" d={head(b, 1) + head(a, -1)} /></>;
   };
   const one = selItems[0];
+  const fxAvail: [string, string][] = ([['contour', 1], ['corners', 1], ['env', !selItems.every(i => i.img)], ['blend', units(sel).length === 2], ['pattern', 1], ['clip', sel.length > 1 || items.some(i => i.clip !== undefined && sel.includes(i.clip))], ['path', selItems.some(i => i.text) && selItems.some(i => !i.text)], ['trace', selItems.some(i => i.img)], ['opacity', isFree || !!one?.img], ['shadow', isFree]] as [string, unknown][]).filter(([, ok]) => ok).map(([k]) => [k, FX_LABEL[k]]);
+  const fxShown = [...new Set([...(one && one.opacity !== undefined && one.opacity < 1 ? ['opacity'] : []), ...(one?.shadow ? ['shadow'] : []), ...fxKeys])].filter(k => fxAvail.some(([q]) => q === k));
   const shapeSubs = useMemo(() => Object.fromEntries(O.SHAPES.map(q => { try { return [q.id, q.make(W)]; } catch { return [q.id, []]; } })) as Record<string, V.Sub[]>, [W]);
   const shapePrev = (subs: V.Sub[], even?: boolean) => { const it = { id: 0, subs, fill: null, stroke: null, sw: 0, even: !!even }, b = V.bounds([it]); if (!b) return <svg viewBox="0 0 24 24" />; const k = 20 / Math.max(b.x1 - b.x0, b.y1 - b.y0); return <svg viewBox="-2 -2 24 24"><path d={V.itemD(V.mapItem(it, (x, y) => [(x - b.x0) * k + (20 - (b.x1 - b.x0) * k) / 2, (y - b.y0) * k + (20 - (b.y1 - b.y0) * k) / 2]))} fillRule={even ? 'evenodd' : 'nonzero'} /></svg>; };
   const sw = (c: string | null, on: () => void, onR: () => void, key?: string, cls = '') => <button key={key ?? c ?? 'none'} className={`sw ${cls}`} onMouseDown={e => e.preventDefault()} title={c ? `${C.label(c)} — sol tık: dolgu, sağ tık: kenar` : 'Sol tık: dolguyu kaldır, sağ tık: kenarı kaldır'} style={{ background: c ? C.css(c) : undefined }} onClick={on} onContextMenu={e => { e.preventDefault(); onR(); }}>{c ? '' : '∅'}</button>;
   const curFill = sel.length ? one?.fill ?? null : fill, curStroke = sel.length ? one?.stroke ?? null : stroke, curSw = sel.length ? one?.sw ?? 0.5 : 0.5;
 
-  return <div className={isFree ? (hidden ? 'vec free off' : 'vec free') : 'vec'} onDragOver={e => { if (!isFree) { e.preventDefault(); e.stopPropagation(); } }} onDrop={async e => { if (isFree) return; e.preventDefault(); e.stopPropagation(); void dropFiles(await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))), at(e)); }}>
+  return <div style={{ '--rw': panel.collapsed ? '0px' : `${panel.width}px` } as React.CSSProperties} className={isFree ? (hidden ? 'vec free off' : 'vec free') : 'vec'} onDragOver={e => { if (!isFree) { e.preventDefault(); e.stopPropagation(); } }} onDrop={async e => { if (isFree) return; e.preventDefault(); e.stopPropagation(); void dropFiles(await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))), at(e)); }}>
     <div className="vec-top">
       {!isFree && <><b>{title}</b><i /></>}
       <div className="vt-mid">
@@ -844,10 +863,15 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       </>}
       <A t="Tümünü göster (F4)" on={fitAll}><Maximize /></A>
       {isFree ? <>
-        {free?.onToSurface && <button className="tb" disabled={!sel.length} title="Seçili çizimi 3D'de bir yüze oturt" onClick={() => free.onToSurface!(printable(itemsRef.current.filter(i => sel.includes(i.id))))}>Yüzeye gönder</button>}
-        <button className="tb primary" disabled={!items.length} title="Seçili çizimi (seçim yoksa hepsini) 3B sahneye kabartma olarak ekler" onClick={insert3d}>{sel.length ? 'Seçileni 3B’ye al' : '3B’ye al'}</button>
+        <div className="vmenu"><button className="tb primary" disabled={!items.length} onClick={() => setMenu(menu === 'send' ? null : 'send')}><Send />3D'ye gönder<ChevronUp className="flip" /></button>
+          {menu === 'send' && <div className="vpop" ref={placePop}>
+            <button onClick={() => { setMenu(null); insert3d(); }}>Tablaya, ayrı nesne olarak<small>{sel.length ? 'Seçili çizim kabartma olur' : 'Tüm çizim kabartma olur (seçim yok)'}</small></button>
+            <button disabled={!sel.length || !free?.onToSurface} onClick={() => { setMenu(null); free!.onToSurface!(printable(itemsRef.current.filter(i => sel.includes(i.id)))); }}>Bir yüze oturt<small>{sel.length ? 'Seçili çizim; 3D modelde yüze tıkla' : 'Önce oturtulacak çizimi seç'}</small></button>
+          </div>}</div>
       </> : <>
         {onSendTo2d && <button className="tb" title="Yüzeyin şeklini ve tasarımı 2D vektör sayfasına yeni artboard olarak taşır" onClick={() => { endEdit(); onSendTo2d(itemsRef.current); }}>Vektör sayfasına gönder</button>}
+        {decal && onDecal && <><div className="seg mini-seg"><button className={decal.kind === 'raise' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'raise' })}>Kabartma</button><button className={decal.kind === 'cut' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'cut' })}>Oyma</button></div>
+          <label className="mini">{decal.kind === 'cut' ? 'Derinlik' : 'Yükseklik'} <input type="number" min={0.2} step={0.2} value={decal.depth} onChange={e => onDecal({ ...decal, depth: Math.max(0.1, +e.target.value || 0.1) })} /> mm</label></>}
         <button className="tb" onClick={onClose}>Vazgeç</button>
         <button className="tb primary" disabled={!items.length} onClick={saveSurface}>Kaydet ve 3B'ye al</button>
       </>}
@@ -865,14 +889,14 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
           for (const l of [...layers].reverse()) { if (isFree) rows.push({ kind: 'layer', l }); for (const it of [...items].reverse()) if (layerOf(it)?.id === l.id) rows.push({ kind: 'item', it }); }
           const RH = 27, from = Math.max(0, Math.floor(lscroll / RH) - 10), to = Math.min(rows.length, Math.ceil((lscroll + lh) / RH) + 10);
           return <div style={{ height: rows.length * RH, position: 'relative' }}>{rows.slice(from, to).map((row, k) => { const top = (from + k) * RH;
-            if (row.kind === 'layer') { const l = row.l; return <div key={'L' + l.id} className={activeLayer === l.id ? 'lrow layer on' : 'lrow layer'} style={{ position: 'absolute', top, left: 0, right: 0 }} onClick={() => setActiveLayer(l.id)} onDoubleClick={() => setRenameL(l.id)}>
+            if (row.kind === 'layer') { const l = row.l; return <div key={'L' + l.id} className={(activeLayer === l.id ? 'lrow layer on' : 'lrow layer') + (dropAt === 'L' + l.id ? ' drop' : '')} style={{ position: 'absolute', top, left: 0, right: 0 }} onDragOver={e => { if (!dragRow.current) return; e.preventDefault(); setDropAt('L' + l.id); }} onDragLeave={() => setDropAt(null)} onDrop={e => { e.preventDefault(); moveRows(l.id, null); }} onClick={() => setActiveLayer(l.id)} onDoubleClick={() => setRenameL(l.id)}>
               {renameL === l.id ? <input autoFocus defaultValue={l.name} onBlur={e => { const v = e.target.value.trim(); if (v) setLayers(ls => ls.map(q => q.id === l.id ? { ...q, name: v } : q)); setRenameL(null); }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /> : <span className="lname"><b>{l.name}</b></span>}
               <button className="ib" title={l.noPrint ? 'Yazdırılmaz (dışa aktarılmaz)' : 'Yazdırılır'} aria-label="Yazdırma" onClick={e => { e.stopPropagation(); setLayers(ls => ls.map(q => q.id === l.id ? { ...q, noPrint: !q.noPrint } : q)); }}>{l.noPrint ? <PrinterX /> : <Printer />}</button>
               <button className="ib" title={l.hidden ? 'Göster' : 'Gizle'} aria-label="Görünürlük" onClick={e => { e.stopPropagation(); setLayers(ls => ls.map(q => q.id === l.id ? { ...q, hidden: !q.hidden } : q)); }}>{l.hidden ? <EyeOff /> : <Eye />}</button>
               <button className="ib" title={l.locked ? 'Kilidi aç' : 'Kilitle'} aria-label="Kilit" onClick={e => { e.stopPropagation(); setLayers(ls => ls.map(q => q.id === l.id ? { ...q, locked: !q.locked } : q)); setSel([]); }}>{l.locked ? <Lock /> : <LockOpen />}</button>
               {layers.length > 1 && <button className="ib ldel" title="Katmanı sil (nesneleri alttaki katmana geçer)" aria-label="Katmanı sil" onClick={e => { e.stopPropagation(); const i = layers.findIndex(q => q.id === l.id), to2 = layers[i - 1] ?? layers[i + 1]; setItems(a => a.map(x => layerOf(x)?.id === l.id ? { ...x, layer: to2.id } : x)); setLayers(ls => ls.filter(q => q.id !== l.id)); if (activeLayer === l.id) setActiveLayer(to2.id); }}><Trash2 /></button>}
             </div>; }
-            const it = row.it; return <div key={it.id} className={(sel.includes(it.id) ? 'lrow on' : 'lrow') + (it.clip !== undefined ? ' kid' : '') + (isFree ? ' in' : '')} style={{ position: 'absolute', top, left: 0, right: 0 }} onClick={e => { if (isLock(it)) return; const u = e.ctrlKey ? [it.id] : expand([it.id]); setSel(s2 => e.shiftKey ? [...new Set([...s2, ...u])] : u); lastPick.current = it.id; setSelBoard(null); }} onDoubleClick={() => setRename(it.id)} onContextMenu={e => itemMenu(it, e)}>
+            const it = row.it; return <div key={it.id} draggable={!isLock(it)} onDragStart={e => { dragRow.current = sel.includes(it.id) ? sel : expand([it.id]); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(it.id)); }} onDragEnd={() => { dragRow.current = null; setDropAt(null); }} onDragOver={e => { if (!dragRow.current || dragRow.current.includes(it.id)) return; e.preventDefault(); setDropAt('I' + it.id); }} onDragLeave={() => setDropAt(null)} onDrop={e => { e.preventDefault(); moveRows(layerOf(it)?.id ?? activeLayer, it.id); }} className={(sel.includes(it.id) ? 'lrow on' : 'lrow') + (it.clip !== undefined ? ' kid' : '') + (isFree ? ' in' : '') + (dropAt === 'I' + it.id ? ' drop' : '')} style={{ position: 'absolute', top, left: 0, right: 0 }} onClick={e => { if (isLock(it)) return; const u = e.ctrlKey ? [it.id] : expand([it.id]); setSel(s2 => e.shiftKey ? [...new Set([...s2, ...u])] : u); lastPick.current = it.id; setSelBoard(null); }} onDoubleClick={() => setRename(it.id)} onContextMenu={e => itemMenu(it, e)}>
               <span className="lsw" style={{ background: it.img ? `center/cover url(${assets[it.img.key]})` : C.css(it.fill ?? it.stroke) }} />
               {rename === it.id ? <input autoFocus defaultValue={it.name ?? ''} onBlur={e => { const v = e.target.value.trim(); applyTo([it.id], x => ({ ...x, name: v || undefined })); setRename(null); }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                 : <span className="lname">{it.name ?? (it.text ? `“${it.text.value.slice(0, 18)}”` : 'Eğri')}{it.group !== undefined ? ' ⧉' : ''}{clipIds.has(it.id) ? ' ▣' : ''}</span>}
@@ -917,7 +941,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
           {s.pts.map((p, i) => { const n = { item: it.id, sub: si, i }, on = isN(n); return <g key={i}>
             {on && p.ix !== undefined && <><line x1={p.x} y1={p.y} x2={p.ix} y2={p.iy} className="hl" strokeWidth={px} /><circle cx={p.ix} cy={p.iy} r={r * 0.8} className="hd" strokeWidth={px} onPointerDown={e => nodeDown(n, 'i', e)} /></>}
             {on && p.ox !== undefined && <><line x1={p.x} y1={p.y} x2={p.ox} y2={p.oy} className="hl" strokeWidth={px} /><circle cx={p.ox} cy={p.oy} r={r * 0.8} className="hd" strokeWidth={px} onPointerDown={e => nodeDown(n, 'o', e)} /></>}
-            <rect x={p.x - r} y={p.y - r} width={2 * r} height={2 * r} className={on ? 'nd on' : 'nd'} strokeWidth={px} onPointerDown={e => nodeDown(n, 'p', e)} onDoubleClick={() => nodeDouble(n)} />
+            <rect x={p.x - r} y={p.y - r} width={2 * r} height={2 * r} className={on ? 'nd on' : 'nd'} strokeWidth={px} onPointerDown={e => { if (e.button === 2) { e.stopPropagation(); return; } nodeDown(n, 'p', e); }} onDoubleClick={e => e.ctrlKey ? delNodes([n]) : nodeDouble(n)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setNodes([n]); setCm({ x: e.clientX, y: e.clientY, node: n }); }} />
           </g>; })}
         </g>))}
         {carets && edit && edit.a !== edit.b && (() => { const lo = Math.min(edit.a, edit.b), hi = Math.max(edit.a, edit.b), h = carets.h, out: ReactNode[] = [];
@@ -935,35 +959,37 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       {ruler('x')}{ruler('y')}<div className="vruler-c" />
       <textarea ref={ta} className="vta" onInput={onType} onSelect={onType} onKeyUp={onType} onBlur={() => setTimeout(() => { const ae = document.activeElement; if (ae !== ta.current && !ae?.closest('.vec-side')) endEdit(); }, 120)}
         style={carets && edit ? (() => { const cr = carets.carets[Math.min(edit.caret, carets.carets.length - 1)]; const [sx, sy] = cr ? toScreen(cr.x, cr.y) : [0, 0]; return { left: sx, top: sy }; })() : undefined} />
-      <p className="vec-hint">{hint}</p>
+      {note && <p className="vec-hint">{note}</p>}
+      {sb && <div className="dimstrip">{units(sel).length > 1 && <span className="ds-n">{units(sel).length} nesne · toplam</span>}<span><em>En</em> {fmt(sb.x1 - sb.x0)}</span><span><em>Boy</em> {fmt(sb.y1 - sb.y0)} mm</span><span className="ds-pos">X {fmt((sb.x0 + sb.x1) / 2)} · Y {fmt((sb.y0 + sb.y1) / 2)}</span></div>}
       <div className="vdock">
         <D t="select" k="Boşluk" label="Seç"><MousePointer2 /></D>
-        <D t="node" k="F10" label="Şekil aracı: düğümler"><Spline /></D>
-        <D t="knife" label="Bıçak"><Scissors /></D>
-        <D t="eraser" k="X" label="Silgi"><Eraser /></D><i />
-        <D t="draw" k="F5" label="Serbest el"><Pencil /></D>
+        <D t="pan" k="H" label="Kaydır"><Hand /></D>
+        <D t="zoom" k="Z" label="Yakınlaştır"><ZoomIn /></D>
+        <D t="dim" label="Ölçü çizgisi"><Ruler /></D><i />
+        <D t="text" k="F8" label="Yazı"><Type /></D>
         <D t="pen" label="Kalem (Bezier)"><PenTool /></D>
+        <D t="draw" k="F5" label="Serbest el"><Pencil /></D>
+        <D t="node" k="F10" label="Şekil aracı: düğümler"><Spline /></D>
         <div className="vmenu up"><button className={tool === 'shape' ? 'db active' : 'db'} data-tip="Şekiller (F6 dikdörtgen, F7 elips, Y çokgen)" aria-label="Şekiller" onClick={() => setMenu(menu === 'shapes' ? null : 'shapes')}>{tool === 'shape' ? shapePrev(shapeId === 'polygon' ? [V.polySub(0, 0, 1, sides)] : shapeId === 'star' ? [V.polySub(0, 0, 1, sides, 0.45)] : shapeSubs[shapeId] ?? []) : <Shapes />}<ChevronUp className="up" /></button>
           {menu === 'shapes' && <div className="vpop shapes-pop" ref={placePop}>
-            <div className="vshapes">{O.SHAPES.map(s => <button key={s.id} className={shapeId === s.id && tool === 'shape' ? 'on' : ''} title={s.label} onClick={() => { setShapeId(s.id); setToolRaw('shape'); setMenu(null); }}>{shapePrev(shapeSubs[s.id] ?? [], s.even)}<span>{s.label}</span></button>)}
+            <div className="vshapes">{O.SHAPES.map(s2 => <button key={s2.id} className={shapeId === s2.id && tool === 'shape' ? 'on' : ''} title={s2.label} onClick={() => { setShapeId(s2.id); setToolRaw('shape'); setMenu(null); }}>{shapePrev(shapeSubs[s2.id] ?? [], s2.even)}<span>{s2.label}</span></button>)}
               <button className={shapeId === 'polygon' ? 'on' : ''} onClick={() => { setShapeId('polygon'); setToolRaw('shape'); setMenu(null); }}>{shapePrev([V.polySub(0, 0, 1, sides)])}<span>Çokgen</span></button>
               <button className={shapeId === 'star' ? 'on' : ''} onClick={() => { setShapeId('star'); setToolRaw('shape'); setMenu(null); }}>{shapePrev([V.polySub(0, 0, 1, sides, 0.45)])}<span>Yıldız ({sides})</span></button></div>
             <label className="mini">Çokgen / yıldız köşe sayısı <input type="number" min={3} max={40} value={sides} onChange={e => setSides(Math.max(3, Math.min(40, +e.target.value || 3)))} /></label>
-          </div>}</div>
-        <D t="text" k="F8" label="Yazı"><Type /></D>
-        <D t="dim" label="Ölçü çizgisi"><Ruler /></D>
-        <D t="pick" k="I" label="Damlalık: rengi al, başkasına uygula"><Pipette /></D><i />
-        <D t="zoom" k="Z" label="Yakınlaştır"><ZoomIn /></D>
-        <D t="pan" k="H" label="Kaydır"><Hand /></D><i />
-        <button className="db" data-tip="Fotoğrafı vektöre çevir (PNG / JPG logo)" aria-label="Fotoğrafı vektöre çevir" onClick={pickImage}><ImageUp /></button>
+          </div>}</div><i />
+        <D t="pick" k="I" label="Damlalık: rengi al, başkasına uygula"><Pipette /></D>
+        <D t="knife" label="Bıçak"><Scissors /></D>
+        <D t="eraser" k="X" label="Silgi"><Eraser /></D>
       </div>
     </div>
 
     <div className="vec-side">
-      <section className="card"><header><b>Renk</b><div className="seg mini-seg"><button className={mode === 'rgb' ? 'on' : ''} onClick={() => switchMode('rgb')}>RGB</button><button className={mode === 'cmyk' ? 'on' : ''} onClick={() => switchMode('cmyk')}>CMYK</button></div></header>
+      <PanelGrip />
+      <Tabs id="v2d" head={selItems.length ? <div className="ins-title"><b>{selItems.length === 1 ? (one.name ?? (one.text ? `“${one.text.value.slice(0, 24)}”` : one.img ? 'Resim' : 'Eğri')) : `${units(sel).length} nesne seçili`}</b></div> : undefined}>
+      <Card id="color" icon={<Palette />} title="Renk" extra={<div className="seg mini-seg"><button className={mode === 'rgb' ? 'on' : ''} onClick={() => switchMode('rgb')}>RGB</button><button className={mode === 'cmyk' ? 'on' : ''} onClick={() => switchMode('cmyk')}>CMYK</button></div>}>
         <div className="vcur">
-          <button className="vchip" onClick={() => setPicker(picker === 'fill' ? null : 'fill')}><span className="sw" style={{ background: curFill ? C.css(curFill) : undefined }}>{curFill ? '' : '∅'}</span>Dolgu<small>{curFill ? C.label(curFill) : 'yok'}</small></button>
-          <button className="vchip" onClick={() => setPicker(picker === 'stroke' ? null : 'stroke')}><span className="sw ring" style={{ borderColor: curStroke ? C.css(curStroke) : undefined }}>{curStroke ? '' : '∅'}</span>Kenar<small>{curStroke ? C.label(curStroke) : 'yok'}</small></button>
+          <button className="vchip" data-cp onClick={() => setPicker(picker === 'fill' ? null : 'fill')}><span className="sw" style={{ background: curFill ? C.css(curFill) : undefined }}>{curFill ? '' : '∅'}</span>Dolgu<small>{curFill ? C.label(curFill) : 'yok'}</small></button>
+          <button className="vchip" data-cp onClick={() => setPicker(picker === 'stroke' ? null : 'stroke')}><span className="sw ring" style={{ borderColor: curStroke ? C.css(curStroke) : undefined }}>{curStroke ? '' : '∅'}</span>Kenar<small>{curStroke ? C.label(curStroke) : 'yok'}</small></button>
         </div>
         {(picker === 'fill' || picker === 'stroke') && <ColorPicker key={picker + sel.join()} value={picker === 'fill' ? curFill : curStroke} mode={mode} onChange={c => paint(c, picker)} onClose={() => setPicker(null)} />}
         {sel.length > 0 && !selItems.every(i => i.img) && <div className="seg">{([['none', 'Düz'], ['linear', 'Doğrusal'], ['radial', 'Dairesel'], ['pat', 'Desen']] as const).map(([k, l]) => <button key={k} className={(k === 'none' ? !one?.grad && !one?.pat : k === 'pat' ? !!one?.pat && !one?.grad : one?.grad?.type === k) ? 'on' : ''} onClick={() => k === 'pat' ? applyTo(sel, x => x.img ? x : { ...x, grad: undefined, pat: x.pat ?? Object.keys(patterns)[0], fill: x.fill ?? '#000000' }) : (setGrad(k), k === 'none' && applyTo(sel, x => ({ ...x, pat: undefined })))}>{l}</button>)}</div>}
@@ -972,12 +998,12 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
             {one.grad.stops.map((q, k) => <i key={k} className={k === gStop ? 'on' : ''} style={{ left: `${q.o * 100}%`, background: C.css(q.c) }} onPointerDown={e => { e.stopPropagation(); setGStop(k); const bar = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect(); past.current.push(itemsRef.current); const mv = (ev: PointerEvent) => editGrad(g => ({ ...g, stops: g.stops.map((s2, n) => n === k ? { ...s2, o: Math.max(0, Math.min(1, (ev.clientX - bar.left) / bar.width)) } : s2) }), false); const u2 = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', u2); }; addEventListener('pointermove', mv); addEventListener('pointerup', u2); }} />)}
           </div>
           <div className="grid2">{one.grad.type === 'linear' ? <label className="field"><span>Açı (°)</span><input type="number" step={15} value={one.grad.angle} onChange={e => editGrad(g => ({ ...g, angle: +e.target.value || 0 }))} /></label> : <span />}
-            <button className="vchip" onClick={() => setPicker(picker === 'stop' ? null : 'stop')}><span className="sw" style={{ background: C.css(one.grad.stops[gStop]?.c ?? '#000') }} />Durak rengi</button></div>
+            <button className="vchip" data-cp onClick={() => setPicker(picker === 'stop' ? null : 'stop')}><span className="sw" style={{ background: C.css(one.grad.stops[gStop]?.c ?? '#000') }} />Durak rengi</button></div>
           <div className="chips"><button className="chip" onClick={() => editGrad(g => ({ ...g, stops: g.stops.map(q => ({ ...q, o: 1 - q.o })) }))}>Ters çevir</button><button className="chip" disabled={one.grad.stops.length < 3} onClick={() => { editGrad(g => ({ ...g, stops: g.stops.filter((_, k) => k !== gStop) })); setGStop(0); }}>Durağı sil</button></div>
           {picker === 'stop' && <ColorPicker value={one.grad.stops[gStop]?.c ?? null} mode={mode} onChange={c => editGrad(g => ({ ...g, stops: g.stops.map((q, k) => k === gStop ? { ...q, c } : q) }))} onClose={() => setPicker(null)} />}
           <small className="hint">Çubuğa çift tıkla: durak ekle. Durağı sürükle: yerini değiştir. Palette tıkla: seçili durağın rengi.</small>
         </div>}
-        {one?.pat && !one.grad && <div className="vgrad"><label className="field"><span>Desen</span><select value={one.pat} onChange={e => applyTo(sel, x => ({ ...x, pat: e.target.value }))}>{Object.entries(patterns).map(([k, q]) => <option key={k} value={k}>{q.name}</option>)}</select></label>{!Object.keys(patterns).length && <small className="hint">Henüz desen yok: desen olacak çizimi seçip Efektler'den “Seçiliden desen oluştur”.</small>}</div>}
+        {one?.pat && !one.grad && <div className="vgrad"><label className="field"><span>Desen</span><select value={one.pat} onChange={e => applyTo(sel, x => ({ ...x, pat: e.target.value }))}>{Object.entries(patterns).map(([k, q]) => <option key={k} value={k}>{q.name}</option>)}</select></label>{!Object.keys(patterns).length && <small className="hint">Henüz desen yok: desen olacak çizimi seçip Efektler'den “Desen”i ekle.</small>}</div>}
         <div className="vpalbar"><select value={palName} onChange={e => setPalName(e.target.value)}><option value="">{mode === 'cmyk' ? 'CMYK paleti' : 'RGB paleti'}</option>{pals.map(q => <option key={q.name} value={q.name}>{q.name}</option>)}</select>
           <button className="ib" title="Dolgu rengini paletime ekle" aria-label="Paletime ekle" onClick={() => addToPal(curFill)}><Plus /></button>
           {curPal && <button className="ib" title="Bu paleti sil" aria-label="Paleti sil" onClick={() => { if (confirm(`“${curPal.name}” silinsin mi?`)) { savePals(pals.filter(q => q !== curPal)); setPalName(''); } }}><Trash2 /></button>}</div>
@@ -986,29 +1012,39 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
         {docColors.length > 0 && <><small className="vlab">Belgedeki renkler</small><div className="pal16 small">{docColors.map(c => sw(c, () => paint(c, 'fill'), () => paint(c, 'stroke'), 'd' + c))}</div></>}
         <p className="hint">Sol tık dolgu, sağ tık kenar rengi, ∅ kaldırır.{edit && edit.a !== edit.b ? ' Yazıda seçili harflere uygulanır.' : ''}{curPal ? ' Shift+tık: paletten çıkar.' : ''}</p>
         {mode === 'cmyk' && <p className="hint warn">CMYK değerleri yaklaşık: renk profili (ICC) kullanılmıyor. Kritik renklerde değerleri elle gir.</p>}
-      </section>
+      </Card>
 
-      <section className="card vcard-stroke"><header><b>Kenar çizgisi (F12)</b></header>
+      <Card id="stroke" icon={<PenLine />} title="Kenar çizgisi" hint="F12">
         <label className="field"><span>Kalınlık (mm)</span><input type="number" min={0.05} step={0.05} value={Math.round(curSw * 1000) / 1000} onChange={e => lineStyle({ sw: Math.max(0.05, +e.target.value || 0.05) })} /></label>
         <div className="chips">{[['Kıl', 0.1], ['0.25', 0.25], ['0.5', 0.5], ['1', 1], ['2', 2]].map(([l, v]) => <button key={l} className={Math.abs(curSw - (v as number)) < 1e-6 ? 'chip on' : 'chip'} onClick={() => lineStyle({ sw: v as number, stroke: one?.stroke ?? stroke ?? (mode === 'cmyk' ? 'cmyk(0,0,0,100)' : '#222222') })}>{l}</button>)}</div>
         <label className="field"><span>Çizgi tipi</span><select value={DASHES.findIndex(d => JSON.stringify(d[1]) === JSON.stringify(one?.dash ?? []))} onChange={e => lineStyle({ dash: DASHES[+e.target.value][1].map(v => v * Math.max(1, curSw * 2)) })}>{DASHES.map(([l], i) => <option key={l} value={i}>{l}</option>)}</select></label>
         <div className="grid2"><label className="field"><span>Köşe</span><select value={one?.join ?? 'round'} onChange={e => lineStyle({ join: e.target.value as V.Item['join'] })}><option value="miter">Sivri</option><option value="round">Yuvarlak</option><option value="bevel">Pahlı</option></select></label>
           <label className="field"><span>Uç</span><select value={one?.cap ?? 'round'} onChange={e => lineStyle({ cap: e.target.value as V.Item['cap'] })}><option value="butt">Düz</option><option value="round">Yuvarlak</option><option value="square">Kare</option></select></label></div>
+        {(sel.length ? selItems.some(i => i.subs.some(q => !q.closed)) : true) && <>
+          <div className="row-h"><b>Ok uçları</b></div>
+          <div className="grid2"><label className="field"><span>Başlangıç</span><select value={one?.arrows?.s ?? ''} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), s: (e.target.value || undefined) as V.ArrowKind | undefined }, stroke: one?.stroke ?? '#222222' })}>{ARROWS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+            <label className="field"><span>Bitiş</span><select value={one?.arrows?.e ?? ''} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), e: (e.target.value || undefined) as V.ArrowKind | undefined }, stroke: one?.stroke ?? '#222222' })}>{ARROWS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+            <label className="field"><span>Ok boyu (mm)</span><input type="number" min={0.3} step={0.5} value={Math.round((one?.arrows?.size ?? Math.max(1.5, curSw * 4)) * 10) / 10} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), size: Math.max(0.3, +e.target.value || 1) } })} /></label>
+            <button className="tb" style={{ alignSelf: 'end' }} disabled={!one?.arrows} onClick={() => applyTo(sel, x => x.arrows ? { ...x, arrows: { ...x.arrows, s: x.arrows.e, e: x.arrows.s } } : x)}>Uçları değiştir</button></div>
+        </>}
         <label className="check"><input type="checkbox" checked={!one?.fixedStroke} onChange={e => lineStyle({ fixedStroke: !e.target.checked })} /> Nesneyle ölçeklensin</label>
         {!isFree && <p className="hint">Yüzeyde ve 3B'de çizgi kalınlığı da katı olur.</p>}
-      </section>
+      </Card>
 
-      {sb && <section className="card"><header><b>Dönüştür</b></header>
+      {sb && <Card id="xform" icon={<Move />} title="Dönüştür" hint="Ctrl+R: tekrarla">
         <div className="grid2">{([['X (orta)', (sb.x0 + sb.x1) / 2], ['Y (orta)', (sb.y0 + sb.y1) / 2], ['Genişlik', sb.x1 - sb.x0], ['Yükseklik', sb.y1 - sb.y0]] as const).map(([l, v], k) => <label className="field" key={l}><span>{l}</span><input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0, cx = (sb.x0 + sb.x1) / 2, cy = (sb.y0 + sb.y1) / 2; if (k === 0) nudge(x - cx, 0); if (k === 1) nudge(0, x - cy); if (k === 2 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / w, cy + (b - cy) * x / w], x / w)); if (k === 3 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / h, cy + (b - cy) * x / h], x / h)); }} /></label>)}</div>
         <div className="seg">{([['rot', 'Döndür'], ['scale', 'Ölçek'], ['skew', 'Eğ']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
         {tab === 'rot' && <label className="field"><span>Açı (°)</span><input type="number" step={1} value={tf.rot} onChange={e => setTf({ ...tf, rot: +e.target.value || 0 })} /></label>}
         {tab === 'scale' && <div className="grid2"><label className="field"><span>Yatay %</span><input type="number" value={tf.sx} onChange={e => setTf({ ...tf, sx: +e.target.value || 100 })} /></label><label className="field"><span>Dikey %</span><input type="number" disabled={tf.lockS} value={tf.lockS ? tf.sx : tf.sy} onChange={e => setTf({ ...tf, sy: +e.target.value || 100 })} /></label><label className="check"><input type="checkbox" checked={tf.lockS} onChange={e => setTf({ ...tf, lockS: e.target.checked })} /> Orantılı</label></div>}
         {tab === 'skew' && <div className="grid2"><label className="field"><span>Yatay (°)</span><input type="number" value={tf.kx} onChange={e => setTf({ ...tf, kx: +e.target.value || 0 })} /></label><label className="field"><span>Dikey (°)</span><input type="number" value={tf.ky} onChange={e => setTf({ ...tf, ky: +e.target.value || 0 })} /></label></div>}
         <div className="grid2"><label className="field"><span>Kopya sayısı</span><input type="number" min={0} max={200} value={tf.copies} onChange={e => setTf({ ...tf, copies: Math.max(0, Math.min(200, Math.round(+e.target.value || 0))) })} /></label><button className="tb primary" style={{ alignSelf: 'end' }} onClick={() => act('transformCopies', tab)}>Uygula</button></div>
-        <p className="hint">Ctrl+R son işlemi tekrarlar.</p>
-      </section>}
+        <div className="row-h"><b>Adımla çoğalt</b><small>Ctrl+Shift+D</small></div>
+        <div className="grid2"><label className="field"><span>Kopya</span><input type="number" min={1} max={500} value={step.n} onChange={e => setStep({ ...step, n: Math.max(1, Math.min(500, Math.round(+e.target.value || 1))) })} /></label><span />
+          <label className="field"><span>Yatay aralık (mm)</span><input type="number" step={0.5} value={step.dx} onChange={e => setStep({ ...step, dx: +e.target.value || 0 })} /></label><label className="field"><span>Dikey aralık (mm)</span><input type="number" step={0.5} value={step.dy} onChange={e => setStep({ ...step, dy: +e.target.value || 0 })} /></label></div>
+        <button className="tb wide" onClick={() => act('stepRepeat', step.n, step.dx, step.dy)}>Çoğalt</button>
+      </Card>}
 
-      {(textItem || tool === 'text') && <section className="card"><header><b>Yazı</b></header>
+      {(textItem || tool === 'text') && <Card id="text" icon={<Type />} title="Yazı">
         {edit && edit.a !== edit.b && <p className="hint">Seçili harflere uygulanır: yazı tipi, boy ve paletten renk.</p>}
         <FontPicker value={textItem ? (edit && edit.a !== edit.b ? textItem.text!.cs?.[Math.min(edit.a, edit.b)]?.font ?? textItem.text!.font : textItem.text!.font) : textDef.font} onChange={v => { if (textItem && edit && edit.a !== edit.b) { void charStyle({ font: v }); return; } if (textItem) editText(textItem, { font: v }); else { setTextDef({ ...textDef, font: v }); void os.ensureFont(kernel, v); } }} />
         <div className="grid2"><label className="field"><span>Boy (mm)</span><input type="number" min={0.5} step={0.5} value={Math.round((textItem ? textItem.text!.size : textDef.size) * 100) / 100} onChange={e => { const v = Math.max(0.5, +e.target.value || 0.5); if (textItem && edit && edit.a !== edit.b) { void charStyle({ size: v }); return; } if (textItem) editText(textItem, { size: v }); else setTextDef({ ...textDef, size: v }); }} /></label>
@@ -1022,53 +1058,47 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
           <div className="grid2"><button className="tb" onClick={() => startEdit(textItem.id)}>Metni düzenle</button><button className="tb" onClick={toCurves}>Eğriye çevir (Ctrl+Q)</button></div>
         </>}
         {!textItem && <p className="hint">Tıkla ve yaz: tek satır yazı. Sürükle: paragraf kutusu (satır kaydırır). Var olan yazıya çift tıkla: düzenle.</p>}
-      </section>}
+      </Card>}
 
-      {sel.length > 0 && <section className="card"><header><b>Efektler</b></header>
-        <div className="vfx"><b>Kontür</b>
-          <div className="grid2"><label className="field"><span>Yön</span><select value={ct.dir} onChange={e => setCt({ ...ct, dir: e.target.value as 'out' })}><option value="out">Dışa</option><option value="in">İçe</option></select></label><label className="field"><span>Aralık (mm)</span><input type="number" min={0.05} step={0.1} value={ct.dist} onChange={e => setCt({ ...ct, dist: Math.max(0.05, +e.target.value || 0.05) })} /></label>
-            <label className="field"><span>Adım</span><input type="number" min={1} max={50} value={ct.steps} onChange={e => setCt({ ...ct, steps: Math.max(1, Math.min(50, Math.round(+e.target.value || 1))) })} /></label><label className="check"><input type="checkbox" checked={ct.filled} onChange={e => setCt({ ...ct, filled: e.target.checked })} /> Dolgulu</label></div>
-          <button className="tb" onClick={contourSel}>Kontür uygula</button><small className="hint">Çizgi rengi kenar renginden; sticker kesim payı, lazer ofseti, çerçeve için.</small></div>
-        <div className="vfx"><b>Köşeler</b><div className="grid2"><label className="field"><span>Ölçü (mm)</span><input type="number" min={0.1} step={0.1} value={corner} onChange={e => setCorner(Math.max(0.05, +e.target.value || 0.05))} /></label><span /><button className="tb" onClick={() => doCorner('chamfer')}>Tüm köşelere pah</button><button className="tb" onClick={() => doCorner('round')}>Köşeleri yuvarla</button></div></div>
-        <div className="grid2"><button className="tb" disabled={!selItems.some(i => i.stroke)} onClick={outlineObj} title="Ctrl+Shift+Q">Çizgiyi nesneye çevir</button><button className="tb" onClick={toCurves} title="Ctrl+Q">Eğriye çevir</button></div>
-        {units(sel).length === 2 && <div className="vfx"><b>Geçiş (blend)</b><div className="grid2"><label className="field"><span>Ara adım</span><input type="number" min={1} max={100} value={blendN} onChange={e => setBlendN(Math.max(1, Math.min(100, Math.round(+e.target.value || 1))))} /></label><button className="tb" style={{ alignSelf: 'end' }} onClick={blendSel}>Geçiş yap</button></div></div>}
-        {!selItems.every(i => i.img) && <div className="vfx"><b>Zarf / bükme</b>
-          <div className="grid2"><label className="field"><span>Biçim</span><select value={env.kind} onChange={e => setEnv({ ...env, kind: e.target.value })}><option value="arc">Kavis</option><option value="arcTop">Üstten kavis</option><option value="arcBottom">Alttan kavis</option><option value="wave">Dalga</option><option value="flag">Bayrak</option><option value="bulge">Şişir / daralt</option></select></label>
-            <label className="field"><span>Miktar %{env.amt}</span><input type="range" min={-100} max={100} value={env.amt} onPointerDown={envStart} onChange={e => { const a = +e.target.value; setEnv({ ...env, amt: a }); if (!envBase.current) envStart(); envelope(env.kind, a); }} onPointerUp={envEnd} /></label></div>
-          <small className="hint">Kaydırıcıyı sürükle: canlı büker. Yazı eğriye çevrilir; Ctrl+Z geri alır.</small></div>}
-        <div className="vfx"><b>Desen</b><div className="grid2"><label className="field"><span>Desen aralığı (mm)</span><input type="number" min={0} step={0.5} value={patGap} onChange={e => setPatGap(Math.max(0, +e.target.value || 0))} /></label><button className="tb" style={{ alignSelf: 'end' }} onClick={makePattern}>Seçiliden desen oluştur</button></div></div>
-        {selItems.some(i => i.img) && <button className="tb wide" onClick={() => void traceItem(selItems.find(i => i.img)!)}>Resmi vektöre çevir…</button>}
-        <div className="vfx"><b>PowerClip</b><div className="grid2"><button className="tb" disabled={sel.length < 2} onClick={clipIn} title="En son seçilen kap olur">İçine yerleştir</button><button className="tb" disabled={!items.some(i => i.clip !== undefined && (sel.includes(i.clip) || sel.includes(i.id)))} onClick={clipOut}>İçinden çıkar</button></div></div>
-        {selItems.some(i => i.text) && selItems.some(i => !i.text) && <button className="tb wide" onClick={fitTextToPath}>Yazıyı yola oturt</button>}
-        {(isFree || one?.img) && one && <div className="vfx"><b>Şeffaflık</b><input type="range" min={0} max={100} value={Math.round((one.opacity ?? 1) * 100)} onChange={e => applyTo(sel, x => ({ ...x, opacity: +e.target.value / 100 }), false)} onPointerUp={() => setItems(a => a)} /><small>%{Math.round((one.opacity ?? 1) * 100)}</small></div>}
-        {isFree && one && <div className="vfx"><b>Gölge</b>
-          <label className="check"><input type="checkbox" checked={!!one.shadow} onChange={e => applyTo(sel, x => ({ ...x, shadow: e.target.checked ? { dx: 1.5, dy: 1.5, blur: 2, color: mode === 'cmyk' ? 'cmyk(0,0,0,100)' : '#000000', opacity: 0.35 } : undefined }))} /> Gölge ekle</label>
-          {one.shadow && <div className="grid2">{([['dx', 'X kayma'], ['dy', 'Y kayma'], ['blur', 'Yumuşaklık'], ['opacity', 'Koyuluk (0–1)']] as const).map(([k, l]) => <label className="field" key={k}><span>{l}</span><input type="number" step={k === 'opacity' ? 0.05 : 0.25} value={one.shadow![k]} onChange={e => applyTo(sel, x => x.shadow ? { ...x, shadow: { ...x.shadow, [k]: +e.target.value || 0 } } : x)} /></label>)}
-            <button className="vchip" onClick={() => setPicker(picker === 'shadow' ? null : 'shadow')}><span className="sw" style={{ background: C.css(one.shadow.color) }} />Gölge rengi</button></div>}
-          {picker === 'shadow' && one.shadow && <ColorPicker value={one.shadow.color} mode={mode} onChange={c => applyTo(sel, x => x.shadow ? { ...x, shadow: { ...x.shadow, color: c } } : x)} onClose={() => setPicker(null)} />}
-          <small className="hint">PDF'te gölge bulanıksız yazılır.</small></div>}
-      </section>}
+      {sel.length > 0 && <Card id="fx" icon={<Sparkles />} title="Efektler" hint={fxShown.length ? `${fxShown.length} açık` : undefined}>
+        <div className="grid2"><button className="tb" onClick={toCurves} title="Ctrl+Q">Eğriye çevir</button><button className="tb" disabled={!selItems.some(i => i.stroke)} onClick={outlineObj} title="Ctrl+Shift+Q">Çizgiyi nesneye çevir</button></div>
+        <label className="fx-add"><Plus /><select value="" aria-label="Efekt ekle" onChange={e => { const k = e.target.value; if (!k) return; if (k === 'opacity' && (one?.opacity ?? 1) >= 1) applyTo(sel, x => ({ ...x, opacity: 0.7 })); if (k === 'shadow' && !one?.shadow) applyTo(sel, x => ({ ...x, shadow: { dx: 1.5, dy: 1.5, blur: 2, color: mode === 'cmyk' ? 'cmyk(0,0,0,100)' : '#000000', opacity: 0.35 } })); setFxKeys(f => [...f.filter(x => x !== k), k]); setFxFold(f => [...f.filter(x => x !== k), k]); }}><option value="">Efekt ekle…</option>{fxAvail.filter(([k]) => !fxShown.includes(k)).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+        {fxShown.map(k => { const lbl = FX_LABEL[k] ?? k, open = fxFold.includes(k), drop = () => { setFxKeys(f => f.filter(x => x !== k)); if (k === 'opacity') applyTo(sel, x => ({ ...x, opacity: undefined })); if (k === 'shadow') applyTo(sel, x => ({ ...x, shadow: undefined })); };
+          return <Fold key={k} title={lbl} open={open} onToggle={() => setFxFold(f => open ? f.filter(x => x !== k) : [...f, k])} tools={<button className="ib" title={k === 'opacity' || k === 'shadow' ? 'Kaldır' : 'Kapat'} aria-label="Kaldır" onClick={drop}><X /></button>}>
+            {k === 'contour' && <><div className="grid2"><label className="field"><span>Yön</span><select value={ct.dir} onChange={e => setCt({ ...ct, dir: e.target.value as 'out' })}><option value="out">Dışa</option><option value="in">İçe</option></select></label><label className="field"><span>Aralık (mm)</span><input type="number" min={0.05} step={0.1} value={ct.dist} onChange={e => setCt({ ...ct, dist: Math.max(0.05, +e.target.value || 0.05) })} /></label>
+              <label className="field"><span>Adım</span><input type="number" min={1} max={50} value={ct.steps} onChange={e => setCt({ ...ct, steps: Math.max(1, Math.min(50, Math.round(+e.target.value || 1))) })} /></label><label className="check"><input type="checkbox" checked={ct.filled} onChange={e => setCt({ ...ct, filled: e.target.checked })} /> Dolgulu</label></div>
+              <button className="tb wide" onClick={contourSel}>Kontür uygula</button><small className="hint">Çizgi rengi kenar renginden; sticker kesim payı, lazer ofseti, çerçeve için.</small></>}
+            {k === 'corners' && <div className="grid2"><label className="field"><span>Ölçü (mm)</span><input type="number" min={0.1} step={0.1} value={corner} onChange={e => setCorner(Math.max(0.05, +e.target.value || 0.05))} /></label><span /><button className="tb" onClick={() => doCorner('chamfer')}>Pah</button><button className="tb" onClick={() => doCorner('round')}>Yuvarla</button></div>}
+            {k === 'blend' && <div className="grid2"><label className="field"><span>Ara adım</span><input type="number" min={1} max={100} value={blendN} onChange={e => setBlendN(Math.max(1, Math.min(100, Math.round(+e.target.value || 1))))} /></label><button className="tb" style={{ alignSelf: 'end' }} disabled={units(sel).length !== 2} onClick={blendSel}>Geçiş yap</button></div>}
+            {k === 'env' && <><div className="grid2"><label className="field"><span>Biçim</span><select value={env.kind} onChange={e => setEnv({ ...env, kind: e.target.value })}><option value="arc">Kavis</option><option value="arcTop">Üstten kavis</option><option value="arcBottom">Alttan kavis</option><option value="wave">Dalga</option><option value="flag">Bayrak</option><option value="bulge">Şişir / daralt</option></select></label>
+              <label className="field"><span>Miktar %{env.amt}</span><input type="range" min={-100} max={100} value={env.amt} onPointerDown={envStart} onChange={e => { const a = +e.target.value; setEnv({ ...env, amt: a }); if (!envBase.current) envStart(); envelope(env.kind, a); }} onPointerUp={envEnd} /></label></div>
+              <small className="hint">Kaydırıcıyı sürükle: canlı büker. Yazı eğriye çevrilir; Ctrl+Z geri alır.</small></>}
+            {k === 'pattern' && <div className="grid2"><label className="field"><span>Desen aralığı (mm)</span><input type="number" min={0} step={0.5} value={patGap} onChange={e => setPatGap(Math.max(0, +e.target.value || 0))} /></label><button className="tb" style={{ alignSelf: 'end' }} onClick={makePattern}>Seçiliden desen oluştur</button></div>}
+            {k === 'clip' && <div className="grid2"><button className="tb" disabled={sel.length < 2} onClick={clipIn} title="En son seçilen kap olur">İçine yerleştir</button><button className="tb" disabled={!items.some(i => i.clip !== undefined && (sel.includes(i.clip) || sel.includes(i.id)))} onClick={clipOut}>İçinden çıkar</button></div>}
+            {k === 'path' && <button className="tb wide" disabled={!(selItems.some(i => i.text) && selItems.some(i => !i.text))} onClick={fitTextToPath}>Yazıyı yola oturt</button>}
+            {k === 'trace' && <button className="tb wide" disabled={!selItems.some(i => i.img)} onClick={() => void traceItem(selItems.find(i => i.img)!)}>Resmi vektöre çevir…</button>}
+            {k === 'opacity' && one && <div className="grid2"><input type="range" min={0} max={100} value={Math.round((one.opacity ?? 1) * 100)} onChange={e => applyTo(sel, x => ({ ...x, opacity: +e.target.value / 100 }), false)} onPointerUp={() => setItems(a => a)} /><small>%{Math.round((one.opacity ?? 1) * 100)}</small></div>}
+            {k === 'shadow' && one?.shadow && <><div className="grid2">{([['dx', 'X kayma'], ['dy', 'Y kayma'], ['blur', 'Yumuşaklık'], ['opacity', 'Koyuluk (0–1)']] as const).map(([q, l]) => <label className="field" key={q}><span>{l}</span><input type="number" step={q === 'opacity' ? 0.05 : 0.25} value={one.shadow![q]} onChange={e => applyTo(sel, x => x.shadow ? { ...x, shadow: { ...x.shadow, [q]: +e.target.value || 0 } } : x)} /></label>)}</div>
+              <button className="vchip" data-cp onClick={() => setPicker(picker === 'shadow' ? null : 'shadow')}><span className="sw" style={{ background: C.css(one.shadow.color) }} />Gölge rengi</button>
+              {picker === 'shadow' && <ColorPicker value={one.shadow.color} mode={mode} onChange={c => applyTo(sel, x => x.shadow ? { ...x, shadow: { ...x.shadow, color: c } } : x)} onClose={() => setPicker(null)} />}
+              <small className="hint">PDF'te gölge bulanıksız yazılır.</small></>}
+          </Fold>; })}
+      </Card>}
 
-      {sel.length > 0 && <section className="card"><header><b>Adımla çoğalt (Ctrl+Shift+D)</b></header>
-        <div className="grid2"><label className="field"><span>Kopya</span><input type="number" min={1} max={500} value={step.n} onChange={e => setStep({ ...step, n: Math.max(1, Math.min(500, Math.round(+e.target.value || 1))) })} /></label><span />
-          <label className="field"><span>Yatay aralık (mm)</span><input type="number" step={0.5} value={step.dx} onChange={e => setStep({ ...step, dx: +e.target.value || 0 })} /></label><label className="field"><span>Dikey aralık (mm)</span><input type="number" step={0.5} value={step.dy} onChange={e => setStep({ ...step, dy: +e.target.value || 0 })} /></label></div>
-        <button className="tb wide" onClick={() => act('stepRepeat', step.n, step.dx, step.dy)}>Çoğalt</button>
-      </section>}
+      {tool === 'eraser' && <Card id="eraser" icon={<Eraser />} title="Silgi"><label className="field"><span>Kalınlık (mm)</span><input type="number" min={0.1} step={0.5} value={eraser * 2} onChange={e => setEraser(Math.max(0.05, (+e.target.value || 0.1) / 2))} /></label></Card>}
 
-      {tool === 'eraser' && <section className="card"><header><b>Silgi</b></header><label className="field"><span>Kalınlık (mm)</span><input type="number" min={0.1} step={0.5} value={eraser * 2} onChange={e => setEraser(Math.max(0.05, (+e.target.value || 0.1) / 2))} /></label></section>}
-
-      {isFree && selBoard !== null && (() => { const b = boards.find(q => q.id === selBoard); if (!b) return null; const upd = (p: Partial<IO.Board>) => setBoards(bs => bs.map(q => q.id === b.id ? { ...q, ...p } : q)); return <section className="card"><header><b>Artboard</b></header>
+      {isFree && selBoard !== null && (() => { const b = boards.find(q => q.id === selBoard); if (!b) return null; const upd = (p2: Partial<IO.Board>) => setBoards(bs => bs.map(q => q.id === b.id ? { ...q, ...p2 } : q)); return <Card id="board" icon={<Frame />} title="Artboard">
         <label className="field"><span>Ad</span><input value={b.name} onChange={e => upd({ name: e.target.value })} /></label>
         <div className="grid2"><label className="field"><span>Genişlik (mm)</span><input type="number" min={1} value={b.w} onChange={e => upd({ w: Math.max(1, +e.target.value || 1) })} /></label><label className="field"><span>Yükseklik (mm)</span><input type="number" min={1} value={b.h} onChange={e => upd({ h: Math.max(1, +e.target.value || 1) })} /></label></div>
         <div className="chips">{PRESETS.map(([n, w, h]) => <button key={n} className="chip" onClick={() => upd({ w, h, name: b.name.startsWith('A') || b.name === 'Özel' ? n : b.name })}>{n}</button>)}<button className="chip" onClick={() => upd({ w: b.h, h: b.w })}>Yan çevir</button></div>
         <button className="tb wide" disabled={boards.length < 2} onClick={remove}>Artboardu sil</button>
-      </section>; })()}
-      <p className="hint">Kılavuz: cetvelden sürükle; geri cetvele bırakınca silinir. Tekerlek: yakınlaştır. Ok tuşları: 0,5 mm (Shift 5 mm).</p>
+      </Card>; })()}
+      </Tabs>
     </div>
 
     {cm && (() => { const it = cm.id !== undefined ? items.find(i => i.id === cm.id) : undefined, B = (p: { on(): void; children: ReactNode; off?: boolean; k?: string }) => <button disabled={p.off} onClick={() => { setCm(null); p.on(); }}>{p.children}{p.k && <small>{p.k}</small>}</button>;
       return <div className="vcm" style={{ left: Math.min(cm.x, innerWidth - 230), top: Math.min(cm.y, innerHeight - 440) }} onContextMenu={e => e.preventDefault()}>
-        {cm.guide !== undefined ? <><B on={() => { setGuides(g => g.filter((_, k) => k !== cm.guide)); setSelGuide(null); }}>Kılavuzu sil</B><B on={() => { setGuides([]); setSelGuide(null); }}>Tüm kılavuzları sil</B></>
+        {cm.node ? <><B on={() => delNodes([cm.node!])} k="Ctrl+çift tık">Düğümü sil</B><B on={() => nodeDouble(cm.node!)} k="çift tık">Köşe ↔ eğri</B></> : cm.guide !== undefined ? <><B on={() => { setGuides(g => g.filter((_, k) => k !== cm.guide)); setSelGuide(null); }}>Kılavuzu sil</B><B on={() => { setGuides([]); setSelGuide(null); }}>Tüm kılavuzları sil</B></>
           : it && isLock(it) ? <><B on={() => { applyTo([it.id], x => ({ ...x, locked: false })); if (layerOf(it)?.locked) setLayers(ls => ls.map(l => l.id === layerOf(it)!.id ? { ...l, locked: false } : l)); setSel(expand([it.id])); }}>Kilidi aç</B><B on={() => applyTo([it.id], x => ({ ...x, hidden: true }))}>Gizle</B></>
           : it ? <>
             <B on={() => { copyItems(); remove(); }} k="Ctrl+X">Kes</B><B on={copyItems} k="Ctrl+C">Kopyala</B><B on={pasteItems} off={!clipb.current.length} k="Ctrl+V">Yapıştır</B><B on={() => dup()} k="Ctrl+D">Çoğalt</B><B on={remove} k="Delete">Sil</B><i />

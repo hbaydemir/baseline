@@ -18,6 +18,7 @@ export interface TextMeta {
   /** Yola oturtulmuş yazı: yolun noktaları, baştan uzaklık (mm), alta çevir. */
   path?: { pts: V[]; offset: number; flip?: boolean };
 }
+export type ArrowKind = 'tri' | 'open' | 'dot' | 'square' | 'bar';
 export interface CharStyle { fill?: string; font?: string; size?: number }
 export interface Grad { type: 'linear' | 'radial'; angle: number; stops: { o: number; c: string }[] }
 export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number }
@@ -38,6 +39,8 @@ export interface Item {
   grad?: Grad; pat?: string;
   /** Katman kimliği. */
   layer?: number;
+  /** Açık çizgilerin uçlarında ok (başlangıç / bitiş) ve boyu (mm). */
+  arrows?: { s?: ArrowKind; e?: ArrowKind; size?: number };
 }
 /** Aynı dolgulu ardışık alt yollar (harf renkleri için). */
 export function fillGroups(it: Item): { fill: string | null; subs: Sub[] }[] {

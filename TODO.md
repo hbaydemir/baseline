@@ -123,3 +123,40 @@ Sıra önemli: yukarıdan aşağı yapılır. [ ] bekliyor, [x] bitti.
 - [x] AI açma: PDF uyumlu AI zaten açılıyor; sürükle-bırak ve sayfa seçimi eklenir
 - [x] AI olarak dışa aktarma: PDF uyumlu AI (Illustrator ve Corel açar)
 - [ ] CDR açma: araştırılacak (kapalı biçim; yalnız tersine mühendislikle okunabiliyor, yazılamıyor)
+
+## 10. Arayüz toparlama ve 3D doğrudan düzenleme (0.6)
+### Genel
+- [x] Toolbox'ın üstünde ince bir ölçü şeridi (salt okunur): 3D'de “En · Boy · Yükseklik”, 2D'de “En · Boy” (mm); seçim yoksa görünmez
+- [x] Şeritte yanında küçük ve soluk “X · Y” konumu
+- [x] Çoklu seçimde şeritte “3 nesne · toplam En … Boy …”
+- [x] 2D'deki sol üst ipucu balonu kalkar (bilgi araç ipuçlarında kalır)
+- [x] Açılıştaki “Modele başla” kartına kapatma (×) düğmesi; boş alana tıklayınca da kapansın; kart açıkken de pencereye sürükle-bırak çalışsın
+
+### Sağ özellik paneli (3D ve 2D)
+- [x] Kartlar yerine sekmeler: panelin sol kenarına yapışık, dışa taşan dikey ikon şeridi; her ikon bir sekme (araç ipucuyla adı)
+- [x] Sekme içinde kart çerçevesi yok; düz, sade ayar listesi
+- [x] Yalnız o nesneye uyan sekmeler görünür (ör. 2D'de “Yazı” sadece yazı seçiliyken); son açılan sekme hatırlanır
+- [x] Panel genişliği sürüklenerek değişir; ikon şeridine kadar daraltılabilir
+- [x] Tab tuşu: sağ paneli ikon şeridine indir / geri aç
+- [x] Paneldeki “Ad” alanı kalkar; ad sol listeden çift tıkla değiştirilir (3D: Nesneler, 2D: Katmanlar)
+- [x] Efektler (3D ve 2D aynı düzen): üstte “+ Efekt ekle” menüsü; eklenen her efekt altta açılıp kapanan bir akordeon (başlıkta ad, göz, sıra, sil)
+
+### 2D
+- [x] Toolbox sırası: Seç · Kaydır · Yakınlaştır · Ölçü çizgisi | Yazı · Kalem · Serbest el · Şekil aracı · Şekiller | Damlalık · Bıçak · Silgi
+- [x] “Fotoğrafı vektöre çevir” ikonu toolbox'tan kalkar (sağ tık / panelde kalır)
+- [x] Şekil aracı: düğüme sağ tık → “Düğümü sil”; Ctrl + çift tık da siler (çift tık köşe ↔ eğri olarak kalır)
+- [x] Gelişmiş renk seçici: Dolgu / Kenar düğmesine bir tık açar, bir tık kapatır (şu an kapanıp yeniden açılıyor)
+- [x] Çizgi uçlarına ok: başa ve sona ayrı ayrı (yok, üçgen ok, açık ok, nokta, kare, çizgi), boy ayarı; PDF / SVG / 3D'ye de geçer
+- [x] Oklar kalem ve serbest el çizgilerinde de çalışır; ölçü çizgisi aynı okları kullanır; “uçları değiştir” düğmesi
+- [x] “Seçileni 3B'ye al” ve “Yüzeye gönder” tek düğmede: “3D'ye gönder ▾” → “Tablaya, ayrı nesne olarak” / “Bir yüze oturt”
+- [x] Katmanlar panelinde nesneyi sürükleyip başka katmana / başka sıraya bırakma
+
+### 3D: doğrudan yüz ve kenar düzenleme
+- [x] Ayrı “Yüzeye çiz” kipi kalkar: nesne seçiliyken imlecin altındaki yüz parlar
+- [x] Yüze sağ tık → “Yüzeye çiz” (bugünkü yüzeye çiz ekranı açılır)
+- [x] 3D Nesneler listesinde çift tıkla yeniden adlandırma
+
+## Geliştirme: ayrıca tartışılacak (0.6'ya dahil değil)
+- [ ] Kenar ve köşe vurgusu; Alt tuşuyla imlecin altındaki yüz, kenar ve köşe arasında geçiş (kenar / köşe işlemleriyle birlikte gelir)
+- [ ] Kenara tıkla → yerinde pah / yuvarlatma. Motor hazır kenar yuvarlatma vermiyor; plan: seçilen kenara uyan kesici şekli çıkarmak, efekt olarak saklamak. Düz kenarlarda temiz; eğri kenarlar ilk sürümde yok; iç köşelerde malzeme eklemek gerekir
+- [ ] Köşeye sağ tık → “Köşeyi serbest şekillendir”. Tek köşeyi çekmek yüzleri bozar; öneri: etki yarıçaplı yumuşak taşıma, efekt olarak saklanır

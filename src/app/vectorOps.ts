@@ -95,6 +95,30 @@ export function shiftStyles(cs: (V.CharStyle | null)[] | undefined, oldV: string
   return [...cs.slice(0, p), ...Array.from({ length: ins }, () => inherit), ...cs.slice(a.length - q)].slice(0, b.length);
 }
 
+// ---------- ok uçları ----------
+/** Açık alt yolların uçlarındaki okları ayrı öğeler olarak üretir (çizim, PDF, SVG, 3B için). */
+export function arrowItems(it: V.Item): V.Item[] {
+  const A = it.arrows; if (!A || (!A.s && !A.e)) return [];
+  const col = it.stroke ?? it.fill ?? '#222222', L = A.size ?? Math.max(1.5, it.sw * 4), out: V.Item[] = [];
+  const one = (kind: V.ArrowKind, tip: V.Pt, from: P) => {
+    let dx = tip.x - from[0], dy = tip.y - from[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l; const nx = -dy, ny = dx, b = (k: number, w: number): V.Pt => ({ x: tip.x - dx * L * k + nx * w, y: tip.y - dy * L * k + ny * w });
+    const base = { id: 0, fill: null as string | null, stroke: null as string | null, sw: it.sw, even: false, name: 'ok', layer: it.layer, clip: it.clip, opacity: it.opacity, hidden: it.hidden };
+    if (kind === 'tri') out.push({ ...base, fill: col, subs: [{ closed: true, pts: [{ x: tip.x + dx * it.sw * 0.6, y: tip.y + dy * it.sw * 0.6 }, b(1, L * 0.42), b(1, -L * 0.42)] }] });
+    else if (kind === 'open') out.push({ ...base, stroke: col, join: 'miter', cap: 'butt', subs: [{ closed: false, pts: [b(0.9, L * 0.45), { x: tip.x, y: tip.y }, b(0.9, -L * 0.45)] }] });
+    else if (kind === 'dot') out.push({ ...base, fill: col, subs: [V.ellipseSub(tip.x, tip.y, L * 0.32, L * 0.32)] });
+    else if (kind === 'square') { const h = L * 0.3; out.push({ ...base, fill: col, subs: [{ closed: true, pts: [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([u, v]) => ({ x: tip.x + (dx * u + nx * v) * h, y: tip.y + (dy * u + ny * v) * h })) }] }); }
+    else if (kind === 'bar') out.push({ ...base, stroke: col, cap: 'butt', subs: [{ closed: false, pts: [b(0, L * 0.5), b(0, -L * 0.5)] }] });
+  };
+  for (const s of it.subs) {
+    if (s.closed || s.pts.length < 2) continue; const p = s.pts, n = p.length;
+    if (A.s) one(A.s, p[0], [p[0].ox ?? p[1].ix ?? p[1].x, p[0].oy ?? p[1].iy ?? p[1].y]);
+    if (A.e) one(A.e, p[n - 1], [p[n - 1].ix ?? p[n - 2].ox ?? p[n - 2].x, p[n - 1].iy ?? p[n - 2].oy ?? p[n - 2].y]);
+  }
+  return out.map(o => ({ ...o, id: V.newId() }));
+}
+/** Dışa aktarmadan önce okları ayrı öğe olarak ekler. */
+export const withArrows = (list: V.Item[]): V.Item[] => list.flatMap(it => it.arrows ? [{ ...it, arrows: undefined }, ...arrowItems(it)] : [it]);
+
 // ---------- manifold yardımcıları ----------
 export function toCS(w: W, it: V.Item): CrossSection {
   return w.CrossSection.ofPolygons(it.subs.filter(s => s.closed && s.pts.length > 1).map(s => V.flattenSub(s, 24).map(([x, y]) => [x, -y] as P)), it.even ? 'EvenOdd' : 'NonZero');

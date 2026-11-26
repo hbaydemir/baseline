@@ -67,7 +67,7 @@ export class Viewport {
   brush = 0; // 0 = yüz boya
   overhang = false;
 
-  constructor(private host: HTMLElement, private cb: { select(id: string | null, add: boolean): void; moved(m: Moved[]): void; surface(s: Surface): void; paint(p: PaintHit): void }) {
+  constructor(private host: HTMLElement, private cb: { select(id: string | null, add: boolean): void; moved(m: Moved[]): void; surface(s: Surface): void; paint(p: PaintHit): void; menu?(m: { x: number; y: number; id: string | null }): void }) {
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
     this.scene.background = new THREE.Color('#eef1f4');
     this.camera.up.set(0, 0, 1); this.camera.position.set(110, -190, 150);
@@ -87,6 +87,14 @@ export class Viewport {
     el.addEventListener('pointermove', e => this.move(e));
     el.addEventListener('pointerup', e => this.up(e));
     el.addEventListener('pointerleave', () => { this.cursor.visible = false; this.highlight(null); this.dirty = true; });
+    // sağ tık menüsü: sağ sürükleme (kaydırma) değilse
+    el.addEventListener('pointerdown', e => { if (e.button === 2) this.rdown = [e.clientX, e.clientY]; });
+    el.addEventListener('contextmenu', e => {
+      e.preventDefault(); const r0 = this.rdown; this.rdown = null;
+      if (this.mode !== 'edit' || (r0 && Math.hypot(e.clientX - r0[0], e.clientY - r0[1]) > 4)) return;
+      const h = this.hitObj(e); this.ctxHit = h ?? null; if (h && !this.sel.includes(h.object.userData.id)) this.cb.select(h.object.userData.id, false);
+      this.cb.menu?.({ x: e.clientX, y: e.clientY, id: h ? h.object.userData.id : null });
+    });
     this.orbit = new OrbitControls(this.camera, el);
     this.orbit.target.set(0, 0, 10); this.orbit.update();
     this.orbit.addEventListener('change', () => { this.dirty = true; });
@@ -303,6 +311,11 @@ export class Viewport {
     this.pressed = [e.clientX, e.clientY];
   }
   private pressed: [number, number] | null = null;
+  private rdown: [number, number] | null = null;
+  private ctxHit: THREE.Intersection | null = null;
+  /** Sağ tıklanan yüze çiz. */
+  surfaceAtMenu() { const h = this.ctxHit; this.ctxHit = null; if (h) this.surface(h); }
+  hasMenuFace() { return !!this.ctxHit; }
   private mark(p: THREE.Vector3) {
     const r = this.brush || 1, m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: '#1677ff', transparent: true, opacity: 0.35, depthWrite: false }));
     m.position.copy(p); this.marks.add(m); this.dirty = true;
@@ -326,7 +339,7 @@ export class Viewport {
       if (h && this.strokeObj && h.object.userData.id === this.strokeObj && this.brush) { const last = this.stroke[this.stroke.length - 1]; const d = last.distanceTo(h.point); if (d > this.brush * 0.4 && this.stroke.length < 600) { const n = Math.min(40, Math.ceil(d / (this.brush * 0.4))); for (let i = 1; i <= n; i++) { const q = last.clone().lerp(h.point, i / n); this.stroke.push(q); this.mark(q); } } }
       this.dirty = true; return;
     }
-    const d = this.drag; if (!d) { this.hover(e); return; }
+    const d = this.drag; if (d) this.highlight(null); if (!d) { this.hover(e); this.highlight(e, true); return; }
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 3) return;
     d.moved = true;
     const p = this.ray(e).ray.intersectPlane(d.plane, new THREE.Vector3()); if (!p) return;
@@ -396,8 +409,8 @@ export class Viewport {
   }
   private hl: { mesh: THREE.Mesh; tris: Set<number>; obj: THREE.Mesh } | null = null;
   /** Yüzeye çizde imlecin altındaki yüzeyi vurgula. */
-  private highlight(e: PointerEvent | null) {
-    const h = e && this.hitObj(e), m = h?.object as THREE.Mesh | undefined;
+  private highlight(e: PointerEvent | null, onlySel = false) {
+    const h0 = e && this.hitObj(e), h = h0 && (!onlySel || this.sel.includes(h0.object.userData.id)) ? h0 : null, m = h?.object as THREE.Mesh | undefined;
     if (!h || !m || h.faceIndex == null) { if (this.hl) { this.hl.obj.removeFromParent(); this.hl.obj.geometry.dispose(); this.hl = null; this.dirty = true; } return; }
     if (this.hl && this.hl.mesh === m && this.hl.tris.has(h.faceIndex)) return;
     if (this.hl) { this.hl.obj.removeFromParent(); this.hl.obj.geometry.dispose(); }

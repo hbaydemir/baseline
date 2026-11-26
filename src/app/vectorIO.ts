@@ -162,7 +162,8 @@ export async function exportPdf(items: V.Item[], pages: Box[], res: Res = {}): P
       const P = res.patterns[it.pat], pb = new Map(P.items.map(q => [q.id, q])), body = P.items.map(x => draw(x, new Map())).join('\n'); void pb;
       pats.set(it.pat, `Pt${pats.size}:${add(`<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 ${n3(P.w)} ${n3(P.h)}] /XStep ${n3(P.w)} /YStep ${n3(P.h)} /Matrix [${M}] /Resources << /ExtGState GSREF >> /Length ${body.length} >>\nstream\n${body}\nendstream`)}`);
     }
-    const content = `q ${M} cm\n${vis.map(it => draw(it, pats)).join('\n')}\nQ`, cid = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    const on = (it: V.Item) => { const q = V.bounds([it.clip !== undefined ? byId.get(it.clip) ?? it : it]); return !q || (q.x1 >= b.x0 && q.x0 <= b.x1 && q.y1 >= b.y0 && q.y0 <= b.y1); };
+    const content = latin1(zlibSync(new TextEncoder().encode(`q ${M} cm\n${vis.filter(on).map(it => draw(it, pats)).join('\n')}\nQ`))), cid = add(`<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n${content}\nendstream`);
     const dict = (m: Map<string, string> | Map<number, string>) => [...m.values()].map(v => `/${v.split(':')[0]} ${v.split(':')[1]} 0 R`).join(' ');
     pageIds.push(add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n3((b.x1 - b.x0) * K)} ${n3((b.y1 - b.y0) * K)}] /Resources << /ExtGState GSREF /XObject << ${dict(imgs)} >> /Shading << ${dict(shades)} >> /Pattern << ${dict(pats)} >> >> /Contents ${cid} 0 R >>`));
   }

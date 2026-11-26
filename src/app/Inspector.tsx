@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowDown, ArrowUp, Brush, ChevronDown, Eye, EyeOff, Group, Layers, Lock, LockOpen, Move3d, Palette, PenTool, Ruler, Scissors, Shapes, Sparkles, SquareDashed, Trash2, Ungroup, Wand2 } from 'lucide-react';
+import { Plus, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowDown, ArrowUp, Brush, ChevronDown, Eye, EyeOff, Group, Layers, Lock, LockOpen, Move3d, Palette, PenTool, Ruler, Scissors, Shapes, Sparkles, SquareDashed, Trash2, Ungroup, Wand2 } from 'lucide-react';
 import type { Command, Node, EffectUse, Doc } from '../core/doc';
 import { num, type Num, type Vars } from '../core/expr';
 import { EFFECTS, SHAPES, SPLIT, type Field } from '../core/shapes';
 import { FontPicker } from './FontPicker';
+import { Tabs, Fold } from './Tabs';
 
 export const PALETTE = ['#ffffff', '#222222', '#8e8c99', '#e5484d', '#f5a524', '#f7d94c', '#30a46c', '#4f8cff', '#9b5de5', '#f4a6c8', '#8b5e3c', '#00b8d4'];
 const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
@@ -80,13 +81,10 @@ export function Inspector(p: InspectorProps) {
   };
   const own = node.type === 'svg' || node.type === 'mesh' || !!node.children;
   const vectorable = !!shape?.profile;
-  return <>
-    <div className="ins-head">
-      <TextBox label={node.children ? 'Grup adı' : `${shape?.label ?? node.type} · ad`} value={node.name} onCommit={name => up({ name })} />
-      {p.error && <p className="error">{p.error}</p>}
-      {p.dims && <p className="dims"><Ruler />{p.dims.map(r2).join(' × ')} mm</p>}
-    </div>
-    {node.mode === 'split' && <SplitCard node={node} vars={vars} up={up} onPins={p.onPins} onUngroup={p.onUngroup} />}
+  const [openFx, setOpenFx] = useState<number[]>([]);
+  const head = <div className="ins-title"><b>{node.name}</b><small>{node.children ? 'grup' : shape?.label ?? node.type}</small>{p.error && <p className="error">{p.error}</p>}</div>;
+  return <Tabs id="ins" head={head}>
+    {node.mode === 'split' && SplitCard({ node, vars, up, onPins: p.onPins, onUngroup: p.onUngroup })}
     {node.children && node.mode !== 'split' && <Card id="group" icon={<Group />} title="Grup" hint="Parçaların nasıl birleşeceği">
       <div className="seg">{(['linked', 'fused'] as const).map(m => <button key={m} aria-pressed={node.mode === m} className={node.mode === m ? 'on' : ''} onClick={() => run([{ op: 'setMode', id: node.id, mode: m }])}>{m === 'linked' ? 'Grup' : 'Birleşik'}</button>)}</div>
       <p className="hint">{node.mode === 'fused' ? 'Tek gövde: delikler kesilir, renkler birbirini keser.' : 'Birlikte hareket eder, parçalar ayrı kalır.'}</p>
@@ -102,16 +100,16 @@ export function Inspector(p: InspectorProps) {
       {vectorable && <button className="wide" onClick={p.onVector}><PenTool />Köşeleri tek tek seç <small>Vektör düzenleyicide köşeye ya da iki kenarın arasına pah</small></button>}
     </Card>}
     <Card id="fx" icon={<Sparkles />} title="Efektler" hint={fx.length ? `${fx.length} efekt` : 'balon, burgu, bükme…'}>
-      {fx.map((e, i) => { const d = EFFECTS[e.type]; return <div className={e.off ? 'fx off' : 'fx'} key={i}>
-        <div className="fx-h"><b>{d.label}</b>
+      <label className="fx-add"><Plus /><select value="" aria-label="Efekt ekle" onChange={e => { const t = e.target.value; if (t) { setFx([...fx, { type: t, params: {} }]); setOpenFx([...openFx, fx.length]); } }}><option value="">Efekt ekle…</option>{canFx.map(([k, e]) => <option key={k} value={k}>{e.label}</option>)}</select></label>
+      {!fx.length && <p className="hint">Balon, burgu, bükme, dizi gibi efektler nesneyi bozmadan üstüne eklenir; sonradan değiştirilir ya da kaldırılır.</p>}
+      {fx.map((e, i) => { const d = EFFECTS[e.type]; return <Fold key={i} title={d.label} dim={e.off} open={openFx.includes(i)} onToggle={() => setOpenFx(openFx.includes(i) ? openFx.filter(x => x !== i) : [...openFx, i])} tools={<>
           <button className="ib" title={e.off ? 'Aç' : 'Kapat'} aria-label={e.off ? 'Aç' : 'Kapat'} onClick={() => setFx(fx.map((x, j) => j === i ? { ...x, off: !x.off } : x))}>{e.off ? <EyeOff /> : <Eye />}</button>
           <button className="ib" title="Önce uygula" aria-label="Önce uygula" disabled={!i} onClick={() => { const a = [...fx]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; setFx(a); }}><ArrowUp /></button>
           <button className="ib" title="Sonra uygula" aria-label="Sonra uygula" disabled={i === fx.length - 1} onClick={() => { const a = [...fx]; [a[i + 1], a[i]] = [a[i], a[i + 1]]; setFx(a); }}><ArrowDown /></button>
-          <button className="ib" title="Kaldır" aria-label="Kaldır" onClick={() => setFx(fx.filter((_, j) => j !== i))}><Trash2 /></button></div>
+          <button className="ib" title="Kaldır" aria-label="Kaldır" onClick={() => { setFx(fx.filter((_, j) => j !== i)); setOpenFx(openFx.filter(x => x !== i).map(x => x > i ? x - 1 : x)); }}><Trash2 /></button></>}>
         {!d.hidden && <Fields fields={d.fields} values={e.params} vars={vars} set={(k, v) => { const a = fx.map((x, j) => j === i ? { ...x, params: { ...x.params, [k]: v } } : x); return up({ effects: a }); }} />}
         {d.hidden && <p className="hint">{d.hint}</p>}
-      </div>; })}
-      <label className="field"><span>Efekt ekle</span><select value="" onChange={e => { const t = e.target.value; if (t) setFx([...fx, { type: t, params: {} }]); }}><option value="">Seç…</option>{canFx.map(([k, e]) => <option key={k} value={k}>{e.label} — {e.hint}</option>)}</select></label>
+      </Fold>; })}
       {!shape?.profile && <p className="hint">Pah efekti yalnız yazı, SVG, poligon, yıldız, kalp ve dilimde.</p>}
     </Card>
     <Card id="color" icon={<Palette />} title="Renk ve tür">
@@ -136,7 +134,7 @@ export function Inspector(p: InspectorProps) {
       {p.isTop && !node.hole && node.mode !== 'split' && <button className="wide" onClick={p.onSplit}><Scissors />Böl <small>Kesim düzlemi ve kilitlerle parçalara ayır</small></button>}
       <button className="wide" onClick={p.onTemplate}><Shapes />Şablon olarak kaydet</button>
     </Card>
-  </>;
+  </Tabs>;
 }
 
 function SplitCard({ node, vars, up, onPins, onUngroup }: { node: Node; vars: Vars; up(x: object): boolean; onPins(): void; onUngroup(): void }) {
@@ -166,8 +164,7 @@ export function MultiPanel({ count, top, run, sel, bounds }: { count: number; to
     run(bs.map(([id, b]) => { const at = b.min[ax] + (b.max[ax] - b.min[ax]) * where, d = [0, 0, 0]; d[ax] = r3(target - at); return { op: 'move', id, d }; }) as unknown as Command[]);
   };
   const A = [[<AlignStartVertical key="a" />, <AlignCenterVertical key="b" />, <AlignEndVertical key="c" />], [<AlignEndHorizontal key="a" />, <AlignCenterHorizontal key="b" />, <AlignStartHorizontal key="c" />], [<AlignEndHorizontal key="a" />, <AlignCenterHorizontal key="b" />, <AlignStartHorizontal key="c" />]];
-  return <>
-    <div className="ins-head"><h2>{count} nesne seçili</h2></div>
+  return <Tabs id="multi" head={<div className="ins-title"><b>{count} nesne seçili</b></div>}>
     <Card id="m-group" icon={<Group />} title="Grupla / birleştir">
       <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'linked' }])}><Group />Grupla <small>Birlikte hareket eder, ayrı parça kalır</small></button>
       <button className="wide" disabled={!top} onClick={() => run([{ op: 'group', ids: sel, mode: 'fused' }])}><Shapes />Birleştir <small>Tek gövde olur, delikler kesilir</small></button>
@@ -178,13 +175,12 @@ export function MultiPanel({ count, top, run, sel, bounds }: { count: number; to
     <Card id="m-place" icon={<Move3d />} title="İlkinin üstüne / yanına koy">
       <div className="grid3">{([['top', 'Üst'], ['left', 'Sol'], ['right', 'Sağ'], ['front', 'Ön'], ['back', 'Arka'], ['center', 'Orta']] as const).map(([side, l]) => <button key={side} disabled={!top} onClick={() => run(sel.slice(1).map(id => ({ op: 'place', id, on: sel[0], side })))}>{l}</button>)}</div>
     </Card>
-  </>;
+  </Tabs>;
 }
 
 export function DocPanel({ doc, vars, run }: { doc: Doc; vars: Vars; run: Run }) {
   const [n, setN] = useState('');
-  return <>
-    <div className="ins-head"><h2>Belge</h2><p className="hint">Düzenlemek için bir nesne seç. Shift ile birden çok seçilir.</p></div>
+  return <Tabs id="doc" head={<div className="ins-title"><b>Belge</b><small>Düzenlemek için bir nesne seç; Shift ile birden çok seçilir.</small></div>}>
     <Card id="d-vars" icon={<Ruler />} title="Ortak ölçüler" hint="isteğe bağlı" open={false}>
       <p className="hint">Birden çok ölçüyü tek yerden yönetmek için. Örneğin <b>kalinlik</b> adında 3 tanımla, ölçü kutularına <code>=kalinlik</code> ya da <code>=kalinlik*2</code> yaz. Buradaki değeri değiştirince hepsi güncellenir. <b>tolerans</b>, geçme parçalardaki boşluktur; dişli ve sürgüler bunu kullanır.</p>
       {Object.entries(doc.params).map(([k, v]) => <div className="prow" key={k}><NumBox label={k} value={v} vars={vars} onCommit={x => run([{ op: 'setParam', name: k, value: x }])} /><button aria-label={`${k} sil`} onClick={() => run([{ op: 'setParam', name: k, value: null }])}><Trash2 /></button></div>)}
@@ -194,5 +190,5 @@ export function DocPanel({ doc, vars, run }: { doc: Doc; vars: Vars; run: Run })
       <p className="keys"><kbd>W</kbd> taşı <kbd>E</kbd> döndür <kbd>R</kbd> ölçekle <kbd>F</kbd> sığdır <kbd>Ctrl+A</kbd> hepsini seç <kbd>Ctrl+C</kbd> kopyala <kbd>Ctrl+X</kbd> kes <kbd>Ctrl+V</kbd> yapıştır (SVG de olur) <kbd>Ctrl+D</kbd> çoğalt <kbd>M</kbd> ölç <kbd>Ctrl+G</kbd> grupla <kbd>Del</kbd> sil <kbd>Shift</kbd> ince ayar (ızgarasız)</p>
       <p className="hint">Seçili nesneyi gövdesinden tutup sürüklersen yalnız X–Y’de kayar. Yukarı–aşağı için mavi oku kullan.</p>
     </Card>
-  </>;
+  </Tabs>;
 }
