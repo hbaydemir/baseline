@@ -10,10 +10,16 @@ export interface TextMeta {
   /** İlk satırın taban çizgisindeki çapa noktası (hizaya göre sol / orta / sağ). */
   x: number; y: number; rot?: number;
   /** Harf aralığı (mm), satır aralığı (çarpan), hiza. */
-  ls?: number; lh?: number; align?: 'left' | 'center' | 'right';
+  ls?: number; lh?: number; align?: 'left' | 'center' | 'right' | 'justify';
+  /** Harf harf stil (renk, yazı tipi, boy); dizi metnin karakterleriyle hizalı. */
+  cs?: (CharStyle | null)[];
+  /** Paragraf yazı: kutu genişliği (mm); x,y kutunun sol üst köşesi. */
+  box?: { w: number };
   /** Yola oturtulmuş yazı: yolun noktaları, baştan uzaklık (mm), alta çevir. */
   path?: { pts: V[]; offset: number; flip?: boolean };
 }
+export interface CharStyle { fill?: string; font?: string; size?: number }
+export interface Grad { type: 'linear' | 'radial'; angle: number; stops: { o: number; c: string }[] }
 export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number }
 export interface Item {
   id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta;
@@ -24,7 +30,25 @@ export interface Item {
   opacity?: number; shadow?: Shadow;
   /** PowerClip: bu öğe şu kabın içinde kırpılır. */
   clip?: number;
+  /** Alt yol başına dolgu (harf renkleri); null: öğenin dolgusu. */
+  subFill?: (string | null)[];
+  /** Yerleştirilmiş resim: çerçeve subs[0] (sol üst, sağ üst, sağ alt, sol alt); key: çizimin resim deposu. */
+  img?: { key: string; w: number; h: number };
+  /** Geçişli dolgu ve desen dolgu (desen kimliği). */
+  grad?: Grad; pat?: string;
+  /** Katman kimliği. */
+  layer?: number;
 }
+/** Aynı dolgulu ardışık alt yollar (harf renkleri için). */
+export function fillGroups(it: Item): { fill: string | null; subs: Sub[] }[] {
+  if (!it.subFill?.some(f => f)) return [{ fill: it.fill, subs: it.subs }];
+  const out: { fill: string | null; subs: Sub[] }[] = [];
+  it.subs.forEach((s, i) => { const f = it.subFill![i] ?? it.fill, last = out[out.length - 1]; if (last && last.fill === f) last.subs.push(s); else out.push({ fill: f, subs: [s] }); });
+  return out;
+}
+const dCache = new WeakMap<Sub[], string>();
+/** Öğenin yolu (alt yol dizisine göre önbellekli). */
+export const itemDc = (it: Item) => { let d = dCache.get(it.subs); if (d === undefined) { d = it.subs.map(subD).join(''); dCache.set(it.subs, d); } return d; };
 export type V = [number, number];
 let nextId = 1;
 export const newId = () => nextId++;
@@ -58,7 +82,7 @@ export function subD(s: Sub) {
 }
 export const itemD = (it: Item) => it.subs.map(subD).join('');
 export function toSvg(items: Item[]): string {
-  items = items.filter(it => !it.hidden);
+  items = items.filter(it => !it.hidden && !it.img).flatMap(it => fillGroups(it).map(g => ({ ...it, subs: g.subs, subFill: undefined, fill: g.fill && it.grad ? it.grad.stops[0]?.c ?? g.fill : g.fill })));
   const b = bounds(items) ?? { x0: 0, y0: 0, x1: 1, y1: 1 }, pad = 1;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r4(b.x0 - pad)} ${r4(b.y0 - pad)} ${r4(b.x1 - b.x0 + 2 * pad)} ${r4(b.y1 - b.y0 + 2 * pad)}">` + items.map(it => `<path d="${itemD(it)}" fill="${css(it.fill)}"${it.even ? ' fill-rule="evenodd"' : ''}${it.stroke ? ` stroke="${css(it.stroke)}" stroke-width="${r4(it.sw)}" stroke-linejoin="round" stroke-linecap="round"` : ''}/>`).join('') + '</svg>';
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { PenTool, ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
+import { ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
 import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
@@ -12,6 +12,7 @@ import { Viewport, type Moved, type Surface, type Tool } from './viewport';
 import { Inspector, MultiPanel, DocPanel, PALETTE } from './Inspector';
 import { VectorEditor, loadItems } from './VectorEditor';
 import type { Sketch } from './vectorIO';
+import type { VectorApi } from './VectorEditor';
 import { Assistant, Library } from './Panels';
 import * as V from './vector';
 import * as os from './platform';
@@ -24,9 +25,9 @@ const ICONS: Record<string, ReactNode> = {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
 const MODEL = /\.(stl|obj|3mf)$/i;
-type Dialog = 'export' | 'ai' | 'update' | 'assist' | 'library';
+type Dialog = 'export' | 'ai' | 'update' | 'assist' | 'library' | 'which';
 type Decal = { kind: 'raise' | 'cut'; depth: number };
-type VecJob = { title: string; items: V.Item[]; guide?: string; hint?: string; save(svg: string, items: V.Item[]): void };
+type VecJob = { title: string; items: V.Item[]; guide?: string; hint?: string; save(svg: string, items: V.Item[]): void; to2d?(items: V.Item[]): void };
 
 export function App({ kernel }: { kernel: Kernel }) {
   const [doc, setDocState] = useState<Doc>(newDoc);
@@ -56,7 +57,14 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [pop, setPop] = useState<'basic' | 'mech' | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [vec, setVec] = useState<VecJob | null>(null);
-  const [freeVec, setFreeVec] = useState(false);
+  const [is2d, setIs2dState] = useState(false), [ever2d, setEver2d] = useState(false), [sketchGen, setSketchGen] = useState(0), [exp2d, setExp2d] = useState(false);
+  const vapi = useRef<VectorApi | null>(null);
+  const setIs2d = (v: boolean) => { if (!v) flushSketch(); setIs2dState(v); if (v) { setEver2d(true); setMode('edit'); } };
+  const sketchTimer = useRef(0), pendingSketch = useRef<Sketch | null>(null);
+  /** Vektör çizimi belgeye yazar (geri alma geçmişine girmez; 2B'nin kendi geçmişi var). */
+  const writeSketch = (sk: Sketch) => { const empty = !sk.items.length && sk.boards.length <= 1 && !sk.guides.length; if (empty && !docRef.current.sketch) return; if (JSON.stringify(sk) === JSON.stringify(docRef.current.sketch ?? null)) return; setDoc({ ...docRef.current, sketch: sk }); setDirty(true); persist(); };
+  const onSketch = (sk: Sketch) => { pendingSketch.current = sk; clearTimeout(sketchTimer.current); sketchTimer.current = window.setTimeout(flushSketch, 600); };
+  const flushSketch = () => { clearTimeout(sketchTimer.current); const sk = pendingSketch.current; pendingSketch.current = null; if (sk) writeSketch(sk); };
   const host = useRef<HTMLDivElement>(null), vp = useRef<Viewport | null>(null);
   const known = useRef<string | null>(null), chain = useRef(Promise.resolve());
 
@@ -67,7 +75,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   const loadExternal = useCallback(async (p: string) => {
     const s = await os.stamp(p), d = parseDoc(await os.readText(p));
     known.current = s;
-    if (serialize(d) !== serialize(docRef.current)) { past.current.push(docRef.current); future.current = []; setDoc(d); setSel(x => x.filter(id => find(d.nodes, id))); say('Belge dışarıdan güncellendi'); }
+    if (serialize(d) !== serialize(docRef.current)) { const skChanged = JSON.stringify(d.sketch ?? null) !== JSON.stringify(docRef.current.sketch ?? null); past.current.push(docRef.current); future.current = []; setDoc(d); setSel(x => x.filter(id => find(d.nodes, id))); if (skChanged) setSketchGen(g => g + 1); say('Belge dışarıdan güncellendi'); }
     setDirty(false);
   }, [say, setDoc]);
   /** Yazmadan önce dosyanın başkası (ör. Claude) tarafından değişip değişmediğine bakar. */
@@ -110,20 +118,22 @@ export function App({ kernel }: { kernel: Kernel }) {
 
   // --- dosya ---
   const attach = useCallback((p: string | null) => { pathRef.current = p; setPathState(p); known.current = null; os.setActive(p).catch(() => {}); }, []);
-  const reset = (d: Doc, p: string | null) => { past.current = []; future.current = []; attach(p); setDoc(d); setSel([]); setDirty(false); };
+  const reset = (d: Doc, p: string | null) => { pendingSketch.current = null; clearTimeout(sketchTimer.current); past.current = []; future.current = []; attach(p); setDoc(d); setSel([]); setDirty(false); setSketchGen(g => g + 1); };
+  /** Açılan belgeye göre 2D ya da 3D; ikisi de varsa sor. */
+  const pickView = (d: Doc) => { const s = (d.sketch as Sketch | undefined)?.items?.length ?? 0, n = d.nodes.length; if (s && n) setDialog('which'); else setIs2d(!!s && !n); };
   const okToLeave = () => !dirty || confirm('Kaydedilmemiş değişiklikler silinsin mi?');
   const saveAs = async () => {
     if (!os.desktop) { os.download('model.baseline', serialize(doc)); setDirty(false); return; }
     const p = await os.pickSave('model.baseline'); if (!p) return;
     attach(p.endsWith('.baseline') ? p : p + '.baseline'); persist(); say('Kaydedildi; artık her değişiklik otomatik kaydedilir');
   };
-  const saveDoc = async () => { if (path) { persist(); say('Kaydedildi'); } else await saveAs(); };
+  const saveDoc = async () => { flushSketch(); if (path) { persist(); say('Kaydedildi'); } else await saveAs(); };
   const openDoc = async () => {
     if (!okToLeave()) return;
     try {
-      if (!os.desktop) { const f = await os.pickText('.baseline'); if (f) reset(parseDoc(f.text), null); return; }
+      if (!os.desktop) { const f = await os.pickText('.baseline'); if (f) { const d = parseDoc(f.text); reset(d, null); pickView(d); } return; }
       const p = await os.pickOpen(); if (!p) return;
-      const s = await os.stamp(p), d = parseDoc(await os.readText(p)); reset(d, p); known.current = s;
+      const s = await os.stamp(p), d = parseDoc(await os.readText(p)); reset(d, p); known.current = s; pickView(d);
     } catch (e) { say(`Açılamadı: ${(e as Error)?.message ?? e}`, true); }
   };
   useEffect(() => {
@@ -208,11 +218,30 @@ export function App({ kernel }: { kernel: Kernel }) {
   useEffect(() => { const v = vp.current; if (!v) return; v.tool = tool; v.magnet = magnet; v.symmetric = symmetric; v.uniform = uniform; v.brush = brush; v.setMode(mode); if (v.overhang !== overhang) v.setOverhang(overhang); v.update(built, mode === 'edit' ? sel : []); }, [built, sel, tool, magnet, symmetric, uniform, mode, brush, overhang]);
 
   /** Yüzeye çizim: seçilen yüzün düzleminde 2B düzenleyici açılır, kaydedince yüzeye 3B olarak oturur. */
+  const pendingSurface = useRef<V.Item[] | null>(null);
+  /** Öğeleri yüzey sınırının ortasına taşır. */
+  const centerOn = (its: V.Item[], outline: string) => { pendingSurface.current = null; const g = V.bounds([{ id: 0, subs: V.parseD(V.joinOutline(outline)), fill: null, stroke: null, sw: 0, even: false }]), b = V.bounds(its); if (!g || !b) return its; const k = Math.min(1, 0.9 * (g.x1 - g.x0) / ((b.x1 - b.x0) || 1), 0.9 * (g.y1 - g.y0) / ((b.y1 - b.y0) || 1)), bx = (b.x0 + b.x1) / 2, by = (b.y0 + b.y1) / 2, gx = (g.x0 + g.x1) / 2, gy = (g.y0 + g.y1) / 2; return its.map(it => V.mapItem(it, (x, y) => [gx + (x - bx) * k, gy + (y - by) * k], k)); };
+  /** Yüzeye çizden 2D sayfasına: yüzeyin şekli kilitli, yazdırılmayan katmanda; tasarım yeni artboardda. */
+  const sendTo2d = (its: V.Item[], outline: string, name: string) => {
+    flushSketch();
+    const sk: Sketch = structuredClone((docRef.current.sketch as Sketch | undefined) ?? { items: [], boards: [{ id: 1, name: 'A4', x: 0, y: 0, w: 210, h: 297 }], guides: [], mode: 'rgb' });
+    V.bumpId([...sk.items, ...sk.boards, ...(sk.layers ?? [])]);
+    const subs = V.parseD(V.joinOutline(outline)), g = V.bounds([{ id: 0, subs, fill: null, stroke: null, sw: 0, even: false }]); if (!g) return;
+    const m = 5, bx = sk.boards.length ? Math.max(...sk.boards.map(b => b.x + b.w)) + 20 : 0, board = { id: V.newId(), name: `Yüzey: ${name}`.slice(0, 40), x: bx, y: sk.boards[0]?.y ?? 0, w: Math.round((g.x1 - g.x0 + 2 * m) * 10) / 10, h: Math.round((g.y1 - g.y0 + 2 * m) * 10) / 10 };
+    const dx = board.x + m - g.x0, dy = board.y + m - g.y0, mv = (it: V.Item) => V.mapItem(it, (x, y) => [x + dx, y + dy]);
+    const layers = sk.layers?.length ? [...sk.layers] : [{ id: V.newId(), name: 'Katman 1' }];
+    let lim = layers.find(l => l.name === 'Yüzey sınırları'); if (!lim) { lim = { id: V.newId(), name: 'Yüzey sınırları', locked: true, noPrint: true }; layers.push(lim); }
+    const draw = layers.find(l => l !== lim)!.id;
+    const outlineItem: V.Item = mv({ id: V.newId(), subs, fill: null, stroke: '#ff0000', sw: 0.1, even: false, fixedStroke: true, name: `Yüzey sınırı: ${name}`, layer: lim.id });
+    writeSketch({ ...sk, layers, boards: [...sk.boards, board], items: [...sk.items, outlineItem, ...its.map(it => ({ ...mv(it), id: V.newId(), layer: draw }))] });
+    setSketchGen(n => n + 1); setVec(null); setIs2d(true); say('Yüzey ve tasarım 2D sayfasına yeni artboard olarak eklendi');
+  };
   handlers.current.surface = (s: Surface) => {
     setMode('edit');
     const host = find(docRef.current.nodes, s.id)?.node; if (!host) return;
     setVec({
-      title: `Yüzeye çiz: ${host.name}`, items: [], guide: s.outline,
+      title: `Yüzeye çiz: ${host.name}`, items: pendingSurface.current ? centerOn(pendingSurface.current, s.outline) : [], guide: s.outline,
+      to2d: its => sendTo2d(its, s.outline, host.name),
       save: (svg, items) => {
         const b = V.bounds(items); if (!b) return;
         const N = s.n, X = s.x, Y = s.y, M = [[X[0], Y[0], N[0]], [X[1], Y[1], N[1]], [X[2], Y[2], N[2]]], rot = eulerOf(M).map(r3) as V3;
@@ -301,6 +330,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   keys.current = e => {
     if (vec || (e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
     const k = e.key.toLowerCase(), c = e.ctrlKey || e.metaKey;
+    if (is2d) { const f = c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : null; if (f) { e.preventDefault(); void f(); } return; }
     const act = c && k === 'a' ? selectAll : c && k === 'c' ? () => copySel(false) : c && k === 'x' ? () => copySel(true) : c && k === 'v' ? paste
       : c && k === 'z' && !e.shiftKey ? () => step(past, future) : c && (k === 'y' || k === 'z') ? () => step(future, past) : c && k === 's' ? saveDoc : c && k === 'o' ? openDoc : c && k === 'i' ? importPick
       : c && k === 'd' ? () => sel.length && run(sel.map(id => ({ op: 'duplicate', id }) as Command), true) : c && k === 'g' ? () => sel.length > 1 && group('linked')
@@ -320,19 +350,32 @@ export function App({ kernel }: { kernel: Kernel }) {
   const paintTarget = mode === 'paint';
 
   useEffect(() => { if (!pop) return; const f = () => setPop(null); addEventListener('click', f); return () => removeEventListener('click', f); }, [pop]);
-  return <div className="app" onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); importFiles(await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })))); }}>
+  return <div className={is2d ? 'app is2d' : 'app'} onDragOver={e => e.preventDefault()} onDrop={async e => { e.preventDefault(); const fs = await Promise.all([...e.dataTransfer.files].map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))); if (is2d) vapi.current?.drop(fs); else importFiles(fs); }}>
     <header>
-      <b className="logo">Baseline</b>
-      <B t="Yeni" on={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 /></B>
-      <B t="Aç (Ctrl+O)" on={openDoc}><FolderOpen /></B>
-      <B t="Kaydet (Ctrl+S)" on={saveDoc}><Save /></B>
-      <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
-      <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
-      {upd ? <button className="ib upd" title={`Yeni sürüm var: ${upd.version}`} aria-label={`Yeni sürüm var: ${upd.version}`} onClick={() => setDialog('update')}><RefreshCw /><span className="upd-dot"><Download /></span></button>
-        : <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>}
-      <B t={dark ? 'Açık tema' : 'Koyu tema'} on={() => setTheme(dark ? 'light' : 'dark')}>{dark ? <Sun /> : <Moon />}</B>
-      <button className="tb" title="STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin." onClick={importPick}><FileUp />İçe aktar</button>
-      <button className="tb primary" disabled={!doc.nodes.length} onClick={() => setDialog('export')}><Download />Dışa aktar</button>
+      <div className="h-left">
+        <b className="logo">Baseline</b>
+        <div className="mode-sw" role="tablist" aria-label="Çalışma alanı">
+          <button role="tab" aria-selected={is2d} className={is2d ? 'on' : ''} title="2D: vektör çizim sayfası" onClick={() => setIs2d(true)}>2D</button>
+          <button role="tab" aria-selected={!is2d} className={!is2d ? 'on' : ''} title="3D: model" onClick={() => setIs2d(false)}>3D</button>
+        </div>
+        <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
+      </div>
+      <div className="h-mid">
+        <button className="tb" title="Yeni belge" onClick={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 />Yeni</button>
+        <button className="tb" title="Aç (Ctrl+O)" onClick={openDoc}><FolderOpen />Aç</button>
+        <button className="tb" title="Kaydet (Ctrl+S)" onClick={saveDoc}><Save />Kaydet</button>
+        <button className="tb" title={is2d ? 'Resim (JPG, PNG, TIFF…), PDF, AI, SVG, DXF ekle. Sürükleyip bırakabilirsin.' : 'STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin.'} onClick={() => is2d ? vapi.current?.importPick() : importPick()}><FileUp />İçe aktar</button>
+        <div className="hmenu"><button className="tb primary" disabled={!is2d && !doc.nodes.length} onClick={() => is2d ? setExp2d(!exp2d) : setDialog('export')}><Download />Dışa aktar</button>
+          {is2d && exp2d && <div className="hpop" onClick={() => setExp2d(false)}>
+            {([['pdf-pages', 'PDF — her artboard ayrı sayfa', ''], ['pdf-one', 'PDF — tek sayfa', 'Tüm artboardlar tek sayfada'], ['ai', 'AI (Illustrator)', 'PDF uyumlu; Illustrator ve Corel açar'], ['svg-free', 'SVG', ''], ['png', 'PNG', 'Her artboard ayrı resim'], ['jpg', 'JPG', 'Her artboard ayrı resim'], ['dxf', 'DXF', 'Lazer için; katmanlar renge göre']] as const).map(([k, l, d]) => <button key={k} onClick={() => vapi.current?.exportAs(k)}>{l}{d && <small>{d}</small>}</button>)}
+          </div>}</div>
+      </div>
+      <div className="h-right">
+        <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
+        {upd ? <button className="ib upd" title={`Yeni sürüm var: ${upd.version}`} aria-label={`Yeni sürüm var: ${upd.version}`} onClick={() => setDialog('update')}><RefreshCw /><span className="upd-dot"><Download /></span></button>
+          : <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>}
+        <B t={dark ? 'Açık tema' : 'Koyu tema'} on={() => setTheme(dark ? 'light' : 'dark')}>{dark ? <Sun /> : <Moon />}</B>
+      </div>
     </header>
     <aside className="left">
       <h2>Nesneler</h2>
@@ -369,7 +412,6 @@ export function App({ kernel }: { kernel: Kernel }) {
         <D t="Mekanik parçalar" active={pop === 'mech'} on={() => setPop(pop === 'mech' ? null : 'mech')}><Cog /><ChevronUp className="up" /></D>
         <i />
         <D t="Yüzeye çiz: yüze tıkla, yazı / şekil / SVG ekle" active={mode === 'surface'} on={() => setMode(mode === 'surface' ? 'edit' : 'surface')}><MousePointerClick /></D>
-        <D t="Vektörel çizim: yüzeyden bağımsız 2B çizim, artboard, PDF / SVG / DXF" active={freeVec} on={() => setFreeVec(true)}><PenTool /></D>
         <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>
         <D t="Ölç (M)" active={mode === 'measure'} on={() => setMode(mode === 'measure' ? 'edit' : 'measure')}><Ruler /></D>
         <i />
@@ -400,22 +442,23 @@ export function App({ kernel }: { kernel: Kernel }) {
           onVector={() => editVector(node)} onSplit={() => startSplit(node)} onPins={() => editPins(node)} onTemplate={() => { const n = prompt('Şablon adı', node.name); if (n) void saveTemplate(n); }} onPaint={() => setMode('paint')} />
           : <DocPanel doc={doc} vars={vars} run={run} />}
     </aside>
-    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu' }[dialog]}>
+    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu', which: 'Belgeyi aç' }[dialog]}>
       {dialog === 'export' && <ExportBox built={built} name={path?.split(/[\\/]/).pop()?.replace('.baseline', '') ?? 'model'} say={say} close={() => setDialog(null)} />}
       {dialog === 'ai' && <AiBox path={path} />}
       {dialog === 'update' && <UpdateBox known={upd} />}
+      {dialog === 'which' && <><p>Bu belgede hem 3D model hem vektör çizim var. Hangisini açayım?</p><div className="row2"><button className="tb primary" onClick={() => { setDialog(null); setIs2d(false); }}>3D model</button><button className="tb" onClick={() => { setDialog(null); setIs2d(true); }}>Vektör çizim</button></div><p className="hint">Sonra soldaki 2D / 3D anahtarıyla geçebilirsin.</p></>}
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
-    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onClose={() => setVec(null)} />}
-    {freeVec && <VectorEditor kernel={kernel} title="Vektörel çizim" initial={[]} onClose={() => setFreeVec(false)} free={{
-      sketch: (docRef.current.sketch as Sketch | undefined) ?? null,
-      onClose: sk => { if (JSON.stringify(sk) !== JSON.stringify(docRef.current.sketch ?? null) && (sk.items.length || docRef.current.sketch)) commit({ ...docRef.current, sketch: sk }); setFreeVec(false); },
+    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} onClose={() => setVec(null)} />}
+    {ever2d && <VectorEditor key={sketchGen} kernel={kernel} title="" initial={[]} onClose={() => setIs2d(false)} free={{
+      sketch: (docRef.current.sketch as Sketch | undefined) ?? null, hidden: !is2d, api: vapi, onChange: onSketch,
+      onToSurface: its => { if (!its.length) return; pendingSurface.current = its; setIs2d(false); setMode('surface'); say('Çizimi oturtmak için 3D modelde bir yüze tıkla'); },
       onInsert: (svgText, its, sk) => {
         const b = V.bounds(its); if (!b) return;
         try {
           const r = apply({ ...docRef.current, sketch: sk }, [{ op: 'add', type: 'svg', name: 'Vektör çizim', params: { svg: svgText, width: r3(b.x1 - b.x0), h: 2 } }], kernel.bounds);
-          commit(r.doc); setSel(r.created); setFreeVec(false); setMode('edit'); say('Vektör çizim 3B’ye alındı; çizim belgede saklandı, tekrar açıp düzenleyebilirsin');
+          pendingSketch.current = null; commit(r.doc); setSel(r.created); setIs2dState(false); setMode('edit'); say('Vektör çizim 3B’ye alındı');
         } catch (e) { say((e as Error).message, true); }
       },
     }} />}

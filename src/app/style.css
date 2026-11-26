@@ -221,3 +221,43 @@ dialog.big{width:min(900px,94vw)}dialog.big .box{max-height:86vh;overflow:auto}
 [data-theme=dark] .vt-mid>i{background:#2c333c}
 .vmenu.up .vpop{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%)}
 .vrotg{cursor:alias}.vrotg .vrot{pointer-events:none}.vskew{pointer-events:none}
+.vroth{fill:#1677ff;stroke:#fff;stroke-width:.0001px;pointer-events:none}.vrotg .vrot,.vskewg .vrot{pointer-events:none}.vskewg{cursor:ew-resize}
+.vguide{cursor:move}.vguide .vgl{stroke:#00a2ff;stroke-opacity:.6}.vguide:hover .vgl,.vguide.on .vgl{stroke-opacity:1;stroke:#0070e0}
+.vsnapp rect{fill:none;stroke:#ff2bd6;pointer-events:none}
+.vcm{position:fixed;z-index:95;min-width:200px;background:#fff;border:1px solid #dfe6ec;border-radius:9px;box-shadow:0 10px 30px #0f203333;padding:4px;display:flex;flex-direction:column}
+.vcm>button{text-align:left;border-color:transparent;padding:5px 10px;display:flex;justify-content:space-between;gap:16px;font-size:13px}.vcm>button:hover:not(:disabled){background:#f0f5fb}.vcm>button small{color:#8a96a3}
+.vcm>i{height:1px;background:#eef1f4;margin:3px 4px}.vcm .sub{padding-left:22px}
+[data-theme=dark] .vcm{background:#1c2026;border-color:#2c333c}[data-theme=dark] .vcm>button:hover:not(:disabled){background:#252b33}[data-theme=dark] .vcm>i{background:#2c333c}
+.vtsel{fill:#1677ff55;pointer-events:none}.vtbox{fill:transparent;stroke:#1677ff99;cursor:text}
+.lrow.layer{background:#f6f8fa;border-top:1px solid #eef1f4}.lrow.layer.on{background:#e3efff}.lrow.in{padding-left:20px}.lrow.in.kid{padding-left:34px}
+[data-theme=dark] .lrow.layer{background:#20252c;border-color:#2c333c}[data-theme=dark] .lrow.layer.on{background:#173156}
+.lscroll{position:relative}
+.vgrad{display:flex;flex-direction:column;gap:8px}
+.vgbar{position:relative;height:22px;border-radius:6px;border:1px solid #0002;margin:4px 6px 8px;cursor:copy}
+.vgbar i{position:absolute;top:100%;width:12px;height:12px;border-radius:3px;border:2px solid #fff;box-shadow:0 0 0 1px #0005;transform:translate(-50%,2px);cursor:ew-resize}.vgbar i.on{box-shadow:0 0 0 2px #1677ff}
+.vpalbar{display:flex;gap:4px;align-items:center}.vpalbar select{flex:1;min-width:0}
+.hint.warn{color:#b26a00}
+.vmodal-box.wide{width:min(760px,94vw)}
+.vtrace{display:grid;grid-template-columns:1fr 1fr;gap:10px}.vtrace figure{margin:0;display:flex;flex-direction:column;gap:4px;min-width:0}
+.vtrace img,.vtrace svg{width:100%;height:260px;object-fit:contain;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/16px 16px;border-radius:8px;border:1px solid #dfe6ec}
+.vtrace figcaption{font-size:11px;color:#7a8794}.vtrace .hint{height:260px;display:grid;place-items:center;border:1px dashed #dfe6ec;border-radius:8px}
+.vcm-h{color:#8a96a3;font-size:11px;padding:2px 10px}
+.vec.free.off{display:none}
+.vec.free{top:48px}
+/* --- 0.5: üst çubuk --- */
+header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;overflow:visible}
+.h-left,.h-mid,.h-right{display:flex;align-items:center;gap:6px;min-width:0}
+.h-right{justify-content:flex-end}.h-left .file{flex:1;min-width:0;text-align:left;margin-left:6px;font-size:12px}
+.h-mid .tb{padding:5px 11px}.h-mid .tb svg{width:16px;height:16px}
+.mode-sw{display:inline-flex;background:#eef1f4;border-radius:8px;padding:2px;gap:2px}
+.mode-sw button{border:0;background:none;padding:3px 12px;border-radius:6px;font-weight:600;font-size:12.5px;color:#5c6b7a}
+.mode-sw button.on{background:#fff;color:#1677ff;box-shadow:0 1px 3px #0f203322}
+.hmenu{position:relative;display:inline-flex}
+.hpop{position:absolute;top:calc(100% + 6px);right:0;z-index:90;display:flex;flex-direction:column;gap:2px;padding:6px;min-width:250px;background:#fff;border:1px solid #dfe6ec;border-radius:10px;box-shadow:0 10px 30px #0f203333}
+.hpop>button{text-align:left;display:flex;flex-direction:column;gap:1px;border-color:transparent}.hpop>button:hover{background:#f0f5fb}.hpop small{color:#7a8794;font-size:11px}
+.row2{display:flex;gap:8px;margin:10px 0}
+[data-theme=dark] .mode-sw{background:#252b33}[data-theme=dark] .mode-sw button{color:#9aa6b2}[data-theme=dark] .mode-sw button.on{background:#323a44;color:#7fb0ff}
+[data-theme=dark] .hpop{background:#1c2026;border-color:#2c333c}[data-theme=dark] .hpop>button:hover{background:#252b33}
+.vta{width:4000px!important;white-space:pre;overflow:hidden}
+.lrow.layer .ldel{display:none}.lrow.layer:hover .ldel{display:grid}.vec-layers{min-width:0}
+.selbox .vhit{fill:transparent!important;stroke:none!important}.selbox .vroth{fill:#1677ff!important;stroke:none!important}.selbox path.vrot{fill:none!important}

@@ -23,29 +23,76 @@ function along(pts: P[], s: number): { p: P; a: number } {
 }
 export const pathLength = (pts: P[]) => pts.reduce((s, p, i) => i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0, 0);
 
-/** Yazıyı yollara döker; carets[i]: i. karakterden önceki imleç yeri (taban çizgisi), açı. */
-export function layoutText(k: GlyphSource, t: V.TextMeta): TextLayout {
-  const fs = t.size / 0.62, lineAdv = fs * 1.15 * (t.lh ?? 1), ls = t.ls ?? 0, subs: V.Sub[] = [], carets: { x: number; y: number; a: number }[] = [];
-  const onPath = t.path && t.path.pts.length > 1, lines = onPath ? [t.value.replace(/\n/g, ' ')] : t.value.split('\n');
-  const local: { subs: V.Sub[]; x: number; y: number; adv: number }[] = [];
-  lines.forEach((line, li) => {
-    const gs = line ? k.glyphs(line, t.size, t.font) : [], total = gs.reduce((s, g) => s + g.adv, 0) + ls * Math.max(0, gs.length - 1);
-    let x = t.align === 'center' ? -total / 2 : t.align === 'right' ? -total : 0; const y = li * lineAdv;
-    for (const g of gs) { local.push({ subs: g.d ? V.parseD(g.d) : [], x, y, adv: g.adv }); carets.push({ x, y, a: 0 }); x += g.adv + ls; }
-    carets.push({ x: gs.length ? x - ls : x, y, a: 0 });
-  });
+/** Yazıyı yollara döker; carets[i]: i. karakterden önceki imleç yeri (taban çizgisi), açı ve satır yüksekliği.
+ *  Harf stilleri (cs), paragraf kutusu (box: satır kaydırma, iki yana yaslama) ve yola oturtma desteklenir. */
+export function layoutText(k: GlyphSource, t: V.TextMeta): TextLayout & { subFill: (string | null)[]; lineH: number[] } {
+  const chars = [...t.value], cs = t.cs ?? [], ls = t.ls ?? 0, lhK = 1.15 * (t.lh ?? 1);
+  const sizeOf = (i: number) => cs[i]?.size ?? t.size, fontOf = (i: number) => cs[i]?.font ?? t.font;
+  // harf ölçüleri: aynı yazı tipi ve boydaki ardışık harfler birlikte (kerning için)
+  const G: { d: string; adv: number }[] = new Array(chars.length);
+  for (let a = 0; a < chars.length;) {
+    let b = a; while (b < chars.length && chars[b] !== '\n' && sizeOf(b) === sizeOf(a) && fontOf(b) === fontOf(a)) b++;
+    if (chars[a] === '\n') { G[a] = { d: '', adv: 0 }; a++; continue; }
+    const gs = k.glyphs(chars.slice(a, b).join(''), sizeOf(a), fontOf(a)); for (let q = a; q < b; q++) G[q] = gs[q - a] ?? { d: '', adv: 0 }; a = b;
+  }
+  const onPath = !!t.path && t.path.pts.length > 1, boxW = !onPath && t.box ? Math.max(1, t.box.w) : 0;
+  // satırlar: [başlangıç, bitiş) karakter aralığı; bitişteki karakter (\n ya da kaydırılan boşluk) satıra çizilmez
+  const lines: { a: number; b: number; soft: boolean }[] = [];
+  const width = (a: number, b: number) => { let w = 0; for (let q = a; q < b; q++) w += G[q].adv + (q < b - 1 ? ls : 0); return w; };
+  let start = 0;
+  for (let q = 0; q <= chars.length; q++) {
+    if (q === chars.length || (chars[q] === '\n' && !onPath)) {
+      if (boxW) { // kelime kelime kaydır
+        let a = start;
+        while (true) {
+          let lastSpace = -1, q2 = a;
+          for (; q2 < q; q2++) { if (chars[q2] === ' ') lastSpace = q2; if (width(a, q2 + 1) > boxW && q2 > a) break; }
+          if (q2 >= q) { lines.push({ a, b: q, soft: false }); break; }
+          const cut = lastSpace > a ? lastSpace : q2; lines.push({ a, b: cut, soft: true }); a = lastSpace > a ? cut + 1 : cut;
+        }
+      } else lines.push({ a: start, b: q, soft: false });
+      start = q + 1;
+    }
+  }
+  const subs: V.Sub[] = [], subFill: (string | null)[] = [], carets: { x: number; y: number; a: number }[] = new Array(chars.length + 1), lineH: number[] = [];
   const move = (s: V.Sub, f: (x: number, y: number) => P): V.Sub => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: V.Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) });
+  // yerleşim (yerel: çapa 0,0; y aşağı)
+  const placed: { i: number; x: number; y: number; adv: number }[] = [];
+  let y = 0;
+  lines.forEach((ln, li) => {
+    let mx = 0; for (let q = ln.a; q < Math.max(ln.b, ln.a + 1) && q < chars.length; q++) mx = Math.max(mx, sizeOf(q)); if (!mx) mx = sizeOf(Math.max(0, ln.a - 1));
+    const adv = mx / 0.62 * lhK; if (li === 0) y = boxW ? mx / 0.62 * 0.85 : 0; else y += adv; lineH.push(adv);
+    const w = width(ln.a, ln.b), al = t.align ?? 'left', spaces = chars.slice(ln.a, ln.b).filter(c => c === ' ').length;
+    const extra = boxW && al === 'justify' && ln.soft && spaces ? (boxW - w) / spaces : 0;
+    let x = boxW ? (al === 'center' ? (boxW - w) / 2 : al === 'right' ? boxW - w : 0) : (al === 'center' ? -w / 2 : al === 'right' ? -w : 0);
+    for (let q = ln.a; q < ln.b; q++) { carets[q] = { x, y, a: 0 }; placed.push({ i: q, x, y, adv: G[q].adv }); x += G[q].adv + ls + (chars[q] === ' ' ? extra : 0); }
+    if (ln.b <= chars.length) carets[ln.b] = { x: ln.b > ln.a ? x - ls : x, y, a: 0 };
+  });
+  for (let q = 0; q <= chars.length; q++) carets[q] ??= { x: 0, y: 0, a: 0 };
+  const glyphSubs = (q: number) => G[q].d ? V.parseD(G[q].d) : [];
   if (onPath) {
     const pts = t.path!.flip ? [...t.path!.pts].reverse() : t.path!.pts, off = t.path!.offset;
-    const place = (gx: number, adv: number) => along(pts, off + gx + adv / 2);
-    for (const g of local) { const { p, a } = place(g.x, g.adv), c = Math.cos(a), s = Math.sin(a); for (const sub of g.subs) subs.push(move(sub, (x, y) => { const u = x - g.adv / 2, v = y; return [p[0] + u * c - v * s, p[1] + u * s + v * c]; })); }
+    for (const g of placed) { const { p, a } = along(pts, off + g.x + g.adv / 2), c = Math.cos(a), s = Math.sin(a); for (const sub of glyphSubs(g.i)) { subs.push(move(sub, (x, yy) => { const u = x - g.adv / 2; return [p[0] + u * c - yy * s, p[1] + u * s + yy * c]; })); subFill.push(cs[g.i]?.fill ?? null); } }
     for (const cr of carets) { const { p, a } = along(pts, off + cr.x); cr.x = p[0]; cr.y = p[1]; cr.a = a; }
-    return { subs, carets, h: fs * 0.9 };
+    return { subs, carets, h: t.size / 0.62 * 0.9, subFill, lineH };
   }
-  const r = (t.rot ?? 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), f = (x: number, y: number): P => [t.x + x * c - y * s, t.y + x * s + y * c];
-  for (const g of local) for (const sub of g.subs) subs.push(move(sub, (x, y) => f(x + g.x, y + g.y)));
-  for (const cr of carets) { const [x, y] = f(cr.x, cr.y); cr.x = x; cr.y = y; cr.a = r; }
-  return { subs, carets, h: fs * 0.9 };
+  const r = (t.rot ?? 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), f = (x: number, yy: number): P => [t.x + x * c - yy * s, t.y + x * s + yy * c];
+  for (const g of placed) for (const sub of glyphSubs(g.i)) { subs.push(move(sub, (x, yy) => f(x + g.x, yy + g.y))); subFill.push(cs[g.i]?.fill ?? null); }
+  for (const cr of carets) { const [x, yy] = f(cr.x, cr.y); cr.x = x; cr.y = yy; cr.a = r; }
+  return { subs, carets, h: t.size / 0.62 * 0.9, subFill, lineH };
+}
+/** Paragraf kutusunun köşeleri (dönüşle). */
+export function textBox(t: V.TextMeta, h: number): P[] {
+  const w = t.box?.w ?? 0, r = (t.rot ?? 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), f = (x: number, y: number): P => [t.x + x * c - y * s, t.y + x * s + y * c];
+  return [f(0, 0), f(w, 0), f(w, h), f(0, h)];
+}
+/** Metin değişince harf stillerini kaydır: eklenen harfler soldakinin stilini alır. */
+export function shiftStyles(cs: (V.CharStyle | null)[] | undefined, oldV: string, newV: string): (V.CharStyle | null)[] | undefined {
+  if (!cs?.some(x => x)) return undefined;
+  const a = [...oldV], b = [...newV]; let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let q = 0; while (q < a.length - p && q < b.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  const ins = b.length - p - q, inherit = cs[p - 1] ?? cs[p] ?? null;
+  return [...cs.slice(0, p), ...Array.from({ length: ins }, () => inherit), ...cs.slice(a.length - q)].slice(0, b.length);
 }
 
 // ---------- manifold yardımcıları ----------
@@ -220,27 +267,56 @@ export function traceImage(w: W, img: CanvasImageSource & { width: number; heigh
   const maxPx = Math.round(200 + o.detail * 700), k0 = Math.min(1, maxPx / Math.max(img.width, img.height)), W_ = Math.max(2, Math.round(img.width * k0)), H = Math.max(2, Math.round(img.height * k0));
   const cv = document.createElement('canvas'); cv.width = W_; cv.height = H; const ctx = cv.getContext('2d', { willReadFrequently: true })!; ctx.drawImage(img, 0, 0, W_, H);
   const px = ctx.getImageData(0, 0, W_, H).data, n = W_ * H, K = Math.max(1, Math.min(32, Math.round(o.colors)));
-  // k-ortalama
-  const samp: number[] = []; const stepS = Math.max(1, Math.floor(n / 25000)); for (let i = 0; i < n; i += stepS) if (px[i * 4 + 3] >= 128) samp.push(i);
+  // k-ortalama (düz döngüler: önizleme her ayarda yeniden hesaplanır)
+  const samp: number[] = []; const stepS = Math.max(1, Math.floor(n / 20000)); for (let i = 0; i < n; i += stepS) if (px[i * 4 + 3] >= 128) samp.push(i);
   if (!samp.length) throw new Error('Resim tamamen şeffaf');
   const C: number[][] = [[px[samp[0] * 4], px[samp[0] * 4 + 1], px[samp[0] * 4 + 2]]];
-  const dist = (i: number, c: number[]) => (px[i * 4] - c[0]) ** 2 + (px[i * 4 + 1] - c[1]) ** 2 + (px[i * 4 + 2] - c[2]) ** 2;
-  while (C.length < K) { let bi = samp[0], bd = -1; for (const i of samp) { const d = Math.min(...C.map(c => dist(i, c))); if (d > bd) { bd = d; bi = i; } } if (bd <= 0) break; C.push([px[bi * 4], px[bi * 4 + 1], px[bi * 4 + 2]]); }
-  for (let it = 0; it < 10; it++) { const S = C.map(() => [0, 0, 0, 0]); for (const i of samp) { let b = 0, bd = Infinity; C.forEach((c, j) => { const d = dist(i, c); if (d < bd) { bd = d; b = j; } }); const s = S[b]; s[0] += px[i * 4]; s[1] += px[i * 4 + 1]; s[2] += px[i * 4 + 2]; s[3]++; } S.forEach((s, j) => { if (s[3]) C[j] = [s[0] / s[3], s[1] / s[3], s[2] / s[3]]; }); }
-  const lab = new Int16Array(n);
-  for (let i = 0; i < n; i++) { if (px[i * 4 + 3] < 128) { lab[i] = -1; continue; } let b = 0, bd = Infinity; C.forEach((c, j) => { const d = dist(i, c); if (d < bd) { bd = d; b = j; } }); lab[i] = b; }
+  const near = (r: number, g: number, b: number) => { let bj = 0, bd = Infinity; for (let j = 0; j < C.length; j++) { const c = C[j], d = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2; if (d < bd) { bd = d; bj = j; } } return [bj, bd] as const; };
+  const md = new Float64Array(samp.length).fill(Infinity);
+  while (C.length < K) {
+    const c = C[C.length - 1]; let bi = -1, bd = 0;
+    for (let q = 0; q < samp.length; q++) { const i = samp[q] * 4, d = (px[i] - c[0]) ** 2 + (px[i + 1] - c[1]) ** 2 + (px[i + 2] - c[2]) ** 2; if (d < md[q]) md[q] = d; if (md[q] > bd) { bd = md[q]; bi = samp[q]; } }
+    if (bi < 0 || bd <= 0) break; C.push([px[bi * 4], px[bi * 4 + 1], px[bi * 4 + 2]]);
+  }
+  for (let it = 0; it < 8; it++) {
+    const S = C.map(() => [0, 0, 0, 0]);
+    for (const q of samp) { const i = q * 4, [j] = near(px[i], px[i + 1], px[i + 2]), t = S[j]; t[0] += px[i]; t[1] += px[i + 1]; t[2] += px[i + 2]; t[3]++; }
+    S.forEach((t, j) => { if (t[3]) C[j] = [t[0] / t[3], t[1] / t[3], t[2] / t[3]]; });
+  }
+  const lab = new Int16Array(n), memo = new Map<number, number>();
+  for (let i = 0; i < n; i++) { if (px[i * 4 + 3] < 128) { lab[i] = -1; continue; } const key = (px[i * 4] >> 2) << 12 | (px[i * 4 + 1] >> 2) << 6 | px[i * 4 + 2] >> 2; let l = memo.get(key); if (l === undefined) { l = near(px[i * 4], px[i * 4 + 1], px[i * 4 + 2])[0]; memo.set(key, l); } lab[i] = l; }
+  for (let pass = 0; pass < 2; pass++) {
+    const src = lab.slice(), cnt = new Int32Array(C.length + 1);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W_ - 1; x++) {
+      const i = y * W_ + x; cnt.fill(0); let own = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const l = src[i + dy * W_ + dx]; cnt[l + 1]++; if (l === src[i]) own++; }
+      if (own <= 3) { let bl = 0, bc = -1; for (let l = 0; l < cnt.length; l++) if (cnt[l] > bc) { bc = cnt[l]; bl = l; } lab[i] = bl - 1; }
+    }
+  }
   if (o.removeBg) { const cnt = new Map<number, number>(); const add = (i: number) => lab[i] >= 0 && cnt.set(lab[i], (cnt.get(lab[i]) ?? 0) + 1); for (let x = 0; x < W_; x++) { add(x); add((H - 1) * W_ + x); } for (let y = 0; y < H; y++) { add(y * W_); add(y * W_ + W_ - 1); } const bg = [...cnt].sort((a, b) => b[1] - a[1])[0]?.[0]; if (bg !== undefined) for (let i = 0; i < n; i++) if (lab[i] === bg) lab[i] = -1; }
   const sc = o.width / W_, items: { it: V.Item; a: number }[] = [];
   for (let j = 0; j < C.length; j++) {
     const loops = traceMask(lab, W_, H, j); if (!loops.length) continue;
-    const cs0 = w.CrossSection.ofPolygons(loops.map(l => l.map(([x, y]) => [x * sc, -y * sc] as P)), 'EvenOdd'), cs1 = cs0.offset(0.45 * sc, 'Round', 2, 8), cs = cs1.simplify(0.35 * sc); cs0.delete(); cs1.delete();
+    const cs0 = w.CrossSection.ofPolygons(loops.map(l => l.map(([x, y]) => [x * sc, -y * sc] as P)), 'EvenOdd'), cs1 = cs0.offset(0.45 * sc, 'Miter', 2), cs = cs1.simplify(0.35 * sc); cs0.delete(); cs1.delete();
     const a = cs.area(); if (a < (2 * sc) ** 2) { cs.delete(); continue; }
-    const polys = (cs.toPolygons() as P[][]).filter(p => Math.abs(area(p)) > (1.5 * sc) ** 2); cs.delete();
-    const subs = polys.map(p => o.smooth ? V.smooth(p.map(([x, y]) => [x, -y] as P), 0.6 * sc, true) : { closed: true, pts: p.map(([x, y]) => ({ x, y: -y })) });
+    const polys = (cs.toPolygons() as P[][]).filter(p => Math.abs(area(p)) > (3 * sc) ** 2); cs.delete();
+    const subs = polys.map(p => cornerSmooth(p.map(([x, y]) => [x, -y] as P), 0.7 * sc, o.smooth));
     const [r, g, b] = C[j], hex = '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
     items.push({ it: { id: V.newId(), subs, fill: hex, stroke: null, sw: 0.25, even: false, name: `İz ${hex}` }, a });
   }
   return items.sort((p, q) => q.a - p.a).map(x => x.it);
+}
+/** Sadeleştir; yumuşak dönüşlerde eğri tutamacı koy, keskin köşeleri köşe bırak. */
+function cornerSmooth(raw: P[], tol: number, smooth: boolean): V.Sub {
+  const rdp = (p: P[]): P[] => { if (p.length < 3) return p; const [a, b] = [p[0], p[p.length - 1]], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; let k = 0, m = 0; for (let i = 1; i < p.length - 1; i++) { const d = Math.abs((b[0] - a[0]) * (a[1] - p[i][1]) - (a[0] - p[i][0]) * (b[1] - a[1])) / L; if (d > m) { m = d; k = i; } } return m > tol ? [...rdp(p.slice(0, k + 1)).slice(0, -1), ...rdp(p.slice(k))] : [a, b]; };
+  let far = 0, fd = -1; raw.forEach((p, i) => { const d = (p[0] - raw[0][0]) ** 2 + (p[1] - raw[0][1]) ** 2; if (d > fd) { fd = d; far = i; } });
+  const q = [...rdp(raw.slice(0, far + 1)).slice(0, -1), ...rdp([...raw.slice(far), raw[0]]).slice(0, -1)], n = q.length, pts: V.Pt[] = q.map(([x, y]) => ({ x, y }));
+  if (smooth && n > 3) pts.forEach((p, i) => {
+    const a = pts[(i + n - 1) % n], b = pts[(i + 1) % n], v1 = [p.x - a.x, p.y - a.y], v2 = [b.x - p.x, b.y - p.y], l1 = Math.hypot(v1[0], v1[1]) || 1, l2 = Math.hypot(v2[0], v2[1]) || 1;
+    if ((v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2) < Math.cos(50 * Math.PI / 180)) return; // keskin köşe
+    const tx = (b.x - a.x) / (l1 + l2), ty = (b.y - a.y) / (l1 + l2); p.ix = p.x - tx * l1 / 3; p.iy = p.y - ty * l1 / 3; p.ox = p.x + tx * l2 / 3; p.oy = p.y + ty * l2 / 3;
+  });
+  return { closed: true, pts };
 }
 /** Etiketi j olan piksellerin sınırlarını kapalı döngüler olarak çıkarır (iç delikler dahil). */
 function traceMask(lab: Int16Array, W_: number, H: number, j: number): P[][] {

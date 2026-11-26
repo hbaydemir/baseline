@@ -65,3 +65,61 @@ Sıra önemli: yukarıdan aşağı yapılır. [ ] bekliyor, [x] bitti.
 - [x] Bilgisayardaki fontlar: aile, kalınlık ve italik seçimi; yazı boyu mm
 - [x] “Bağla” → “Grupla”, “Kaynaştır” → “Birleştir”
 - [x] Boyama hızı: yalnız yeni darbe hesaplanır, fırçanın uzağındaki üçgenlere bakılmaz
+
+## 9. 2D / 3D tek program (0.5)
+### Üst çubuk ve geçiş
+- [x] Solda logonun yanında 2D | 3D anahtarı; varsayılan 3D. 2D vektör çizim sayfasını açar (yüzeye çizden bağımsız)
+- [x] Ortada yazılı, ikonlu 5'li grup: Yeni · Aç · Kaydet · İçe aktar · Dışa aktar (aktif moda göre çalışır)
+- [x] Sağda yalnız ikonlar: yapay zekâ, güncelleme, koyu tema
+- [x] 2D sayfası tam ekran pencere değil, uygulamanın kendi ekranı olur (üst çubuk görünür kalır)
+- [x] Alttaki araç kutusundaki “Vektörel çizim” ikonu kalkar (anahtar yeterli)
+
+### Dosya
+- [x] Aynı .baseline biçimi; içinde yalnız 2D varsa 2D, yalnız 3D varsa 3D açılır
+- [x] İkisi de varsa açılışta sor: “3D modeli mi, vektör çizimi mi açayım?”
+- [x] 2D'de Kaydet yalnız vektör projesini de kaydedebilir (3D boş olsa da)
+- [x] Dışa aktar menüsü moda göre: 3D'de 3MF/STL/OBJ, 2D'de PDF/SVG/DXF/PNG
+
+### Yüzeye çiz ↔ vektör sayfası
+- [x] Yüzeye çizde “Vektör sayfasına gönder”: yüzeyin şekli (kırmızı kıl çizgi, kilitli) ve tasarım yeni artboard olarak 2D sayfasına gider
+- [x] 2D sayfasında seçili çizimi bir yüzeye geri gönderme (yüzey seç → oraya oturt)
+
+### Hatalar
+- [x] Yüzeye çizde ızgara çizgileri çok kalın (çizgi kalınlığı mm, ekran pikseli olmalı); küçük yüzeyde çizim görünmüyor
+- [x] Yüzeyin turuncu sınırı neredeyse görünmüyor (0.4.0'da bozuldu)
+- [x] Döndürme tutamaçlarındaki oklar anlaşılmıyor: Corel'deki gibi net kavisli çift ok
+- [x] Kılavuz çizgisi silinemiyor: tıklayınca seçilsin, Delete ile silinsin; sağ tık “Sil / Tümünü temizle”
+- [x] Geri alma: 2D geçmişi ekran kapanınca kayboluyor, 3D ile ayrı; kalıcı ve tek geçmiş olsun
+- [x] Mıknatıs: düğüm noktalarına, yolun üstüne, ölçeklerken ve şekil çizerken de yapışsın
+- [x] CMYK yaklaşık çevriliyor (renk profili yok): ekranda açıkça belirt
+- [x] Büyük çizimlerde hız: binlerce noktalı izler ve uzun katalog sayfaları; katmanlar listesi sanal liste olsun
+
+### Yazı
+- [x] Yazının bir kısmını fareyle / Shift+ok / Ctrl+A ile seçebilme; seçili alan Corel'deki gibi arkadan vurgulansın
+- [x] Seçili harflere ayrı renk, kalınlık, boy
+- [x] Paragraf yazı: kutuya yazılır, satır kaydırır; sola / ortaya / sağa / iki yana yaslama
+
+### Resim ve fotoğrafı vektöre çevirme
+- [x] Resim yerleştirme: JPG, JPEG, PNG, TIFF, WEBP, BMP; İçe aktar ve sürükle-bırak ile
+- [x] Resme şeffaflık, boyut, döndürme, PowerClip ile şekle kırpma
+- [x] Sayfadaki resme sağ tık / düğme: “Vektöre çevir” (dosya seçmeden, Corel'deki gibi)
+- [x] Vektöre çevirde canlı önizleme: ayar değiştikçe sonuç görünsün; büyük resimde hızlı
+- [x] PDF, AI, SVG, DXF dosyaları da sürükle-bırak ile gelsin
+
+### Kilit (Corel'deki gibi)
+- [x] Kilitli nesne yerinden oynamaz, tıklayınca seçilmez, çerçeveyle seçime girmez
+- [x] Sağ tık menüsü: Kilitle / Kilidi aç (ve kes, kopyala, sil, sıralama, grupla gibi sık işler)
+- [x] Kullanım: resmi soluklaştır, kilitle, üstünden çiz
+
+### Corel'den eksikler
+- [x] Geçişli dolgu: doğrusal ve dairesel gradient
+- [x] PNG / JPG dışa aktarma (DPI seçimiyle)
+- [x] Zarf / bükme: yazıyı ve şekli kavise, dalgaya büktür
+- [x] Desen dolgu
+- [x] Gerçek katmanlar: katman oluştur, gizle, kilitle, “yazdırılmasın” (yüzey sınırı için)
+- [x] Kendi renk paletini kaydetme (marka setiyle birleşir)
+
+### Dosya biçimleri
+- [x] AI açma: PDF uyumlu AI zaten açılıyor; sürükle-bırak ve sayfa seçimi eklenir
+- [x] AI olarak dışa aktarma: PDF uyumlu AI (Illustrator ve Corel açar)
+- [ ] CDR açma: araştırılacak (kapalı biçim; yalnız tersine mühendislikle okunabiliyor, yazılamıyor)
