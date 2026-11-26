@@ -6,7 +6,6 @@ import { builtBounds, triColor, world } from '../src/core/kernel';
 import { to3mf, toObj, toStl } from '../src/core/export';
 import { SHAPES } from '../src/core/shapes';
 import { importModel, repair } from '../src/core/mesh';
-import { TEMPLATES, templateDoc } from '../src/core/templates';
 import { analyze } from '../src/core/guide';
 import { kernel } from '../tools/node';
 const TWO = '<svg viewBox="0 0 100 100"><path fill="#e5484d" d="M50 90 C-20 45 15 0 50 30 C85 0 120 45 50 90Z"/><circle cx="33" cy="38" r="9" fill="#ffffff"/></svg>';
@@ -139,8 +138,7 @@ test('belge ekleme parametre çakışmasını ayırır', () => {
   const m = apply(a, [{ op: 'insert', doc: b, pos: [50, 0, 0] }]).doc, r = k.build(m).map(builtBounds);
   expect(r.map(x => Math.round(x.max[0] - x.min[0]))).toEqual([10, 30]);
 });
-test('hazır şablonlar hatasız; asistan analizi', () => {
-  for (const t of TEMPLATES) { const b = k.build(templateDoc(t)); for (const x of b) expect(x.error, t.id).toBeUndefined(); }
+test('asistan analizi', () => {
   const a = analyze(make([{ op: 'add', type: 'sphere', params: { dia: 30 } }, { op: 'add', type: 'box', pos: [40, 0, 10] }]).built)!;
   expect(a.floating).toBe(1); expect(a.overhang).toBeGreaterThan(100); expect(a.findings.some(f => f.text.includes('destek'))).toBe(true);
 });
@@ -165,4 +163,18 @@ test('dizi, aynala, içini boşalt; bölme', () => {
   expect(k.splitInfo(d, d.nodes[0].id).pts.length).toBeGreaterThan(0);
   const un = apply(d, [{ op: 'ungroup', id: d.nodes[0].id }]).doc; expect(un.nodes[0].type).toBe('box');
   expect(() => apply(d, [{ op: 'update', id: d.nodes[0].id, params: { joint: 'yok' } }])).toThrow();
+});
+test('şablon alanları: seçenek, aç-kapa, ölçü; imzasız şablon resmî sayılmaz', async () => {
+  const { applyFields, verifyOfficial, catOf, tplPath } = await import('../src/core/template');
+  const { doc } = apply({ ...newDoc(), params: { en: 40 } }, [
+    { op: 'add', type: 'box', id: 'a', params: { w: '=en' } }, { op: 'add', type: 'cylinder', id: 'b' }, { op: 'add', type: 'sphere', id: 'c' }, { op: 'add', type: 'text', id: 't', params: { text: 'x' } },
+  ]);
+  doc.template = { name: 'Deneme', fields: [
+    { key: 'sekil', label: 'Şekil', type: 'choice', options: [{ label: 'A', nodes: ['a'] }, { label: 'B', nodes: ['b'] }] },
+    { key: 'kure', label: 'Küre', type: 'toggle', nodes: ['c'] }, { key: 'en', label: 'En', type: 'number' }, { key: 'yazi', label: 'Yazı', type: 'text', node: 't' }] };
+  const out = applyFields(doc, { sekil: 1, kure: false, en: 55, yazi: 'Merhaba' });
+  expect(out.nodes.map(n => n.id)).toEqual(['b', 't']); expect(out.params.en).toBe(55); expect(out.nodes[1].params.text).toBe('Merhaba'); expect(out.template).toBeUndefined();
+  expect(applyFields(doc, {}).nodes.map(n => n.id)).toEqual(['a', 'c', 't']);
+  expect(await verifyOfficial({ ...doc, template: { ...doc.template, official: true, sig: 'AAAA' } })).toBe(false);
+  expect(catOf('')).toBe('Genel'); expect(tplPath({ name: 'a/b', category: ' Ev & Yaşam / Mutfak ' })).toBe('tpl:Ev & Yaşam/Mutfak/a_b.baseline');
 });

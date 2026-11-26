@@ -50,7 +50,7 @@ Baseline, 3D yazıcıyla üretim yapanlar için tek bir masaüstü program olmay
 
 ### Yüzeye çiz
 
-Nesneyi seç, imleci bir yüzün üstüne getir: yüz parlar. Sağ tıkla **Yüzeye çiz**: o yüzün tam şekli ve ölçüsüyle 2D çizim ekranı açılır. Yazı, şekil ya da SVG ekle, **kabartma** ya da **oyma** olarak kaydet; düz ya da eğri yüzeye oturur. Yüzün şeklini ve tasarımını **vektör sayfasına gönder**ip UV baskı ve lazer için birebir ölçülü PDF / SVG alabilirsin.
+Nesneyi seç, imleci bir yüzün üstüne getir: yüz parlar. Sağ tıkla **Yüzeye çiz**: o yüzün tam şekli ve ölçüsüyle 2D çizim ekranı açılır. Yazı, şekil ya da SVG ekle, **kabartma** ya da **oyma** olarak kaydet; düz ya da eğri yüzeye oturur. Yüzün şeklini ve tasarımını **vektör sayfasına gönder**ip UV baskı ve lazer için birebir ölçülü PDF / SVG alabilirsin. Kabartma / oyma ve yükseklik ayarı sağ panelin **Yüzey** sekmesindedir. Bitirdiğin çizimi sonradan aynı yüzde yeniden **Yüzeye çiz** ile (ya da kabartmayı seçip **Vektörde düzenle** ile) açarsın; yazılar yine düzenlenebilir yazı olarak gelir. Yüzeye çiz açıkken üstteki **İçe aktar** ve **Dışa aktar** yüzey çizimi için çalışır. Yazı hizası (sola, ortaya, sağa, iki yana) üst çubuktaki hizalama düğmelerinin yanındadır.
 
 ![Yüze sağ tık menüsü](docs/images/3d-yuzeye-ciz.png)
 
@@ -95,12 +95,16 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
 
 Belgede hem 3D model hem vektör çizim varsa Baseline açarken hangisini açacağını sorar.
 
-## Şablonlar ve marka seti
+## Şablon yöneticisi
 
-- **Hazır şablonlar:** İsimli anahtarlık, balon yazı, masa isimliği, kapaklı kutu, bardak altlığı, kalemlik, kaideler, duvar askısı, dişli seti, menteşe, tolerans testi.
-- **Promosyon şablonları:** Kartvizit (QR'lı), logolu ve NFC anahtarlık, bardak altlığı, telefon standı, kalemlik, buzdolabı magneti, bavul etiketi, masa isimliği, ayaklı tabela, madalya, şişe açacağı.
-- **Marka seti:** Logonu (SVG), firma adını ve renklerini bir kez gir; bütün promosyon şablonları onunla açılır.
-- **Kendi şablonların ve tasarım havuzu:** Beğendiğin modeli şablon olarak sakla, tekrar kullan.
+Şablonlar programın içinde gelmez; ayrı dosyalar olarak eklenir ve Masaüstündeki **Baseline Templates** klasöründe durur.
+
+- **İçe aktar:** Satın aldığın ya da indirdiğin `.baseline` şablonlarını "İçe aktar" ile ekle. Dosyada kategori yoksa "Genel"e konur.
+- **Kategoriler ve arama:** Soldaki ağaçtan kategori ve alt kategori seç, ada, açıklamaya ya da etikete göre ara. "Resmî" ve "Benim" filtreleri var.
+- **Özelleştir:** Şablona tıkla; ölçü, yazı, logo (SVG), renk, şekil seçenekleri ve aç-kapa parçaları değiştirip sahneye ekle.
+- **Resmî şablonlar:** Baseline tarafından imzalıdır, mavi rozetle görünür. Adı, kategorisi ve açıklaması değiştirilemez; dosya değiştirilirse rozetini kaybeder.
+- **Kendi şablonların:** Açık belgeyi ya da seçili nesneleri "Yeni şablon" ile kaydet. Ad zorunlu; kategori ve açıklama isteğe bağlı. Sonradan "Bilgileri düzenle" ile değiştirebilirsin.
+- **Tasarım havuzu:** Sık kullandığın STL, OBJ, 3MF, SVG ve .baseline dosyalarını havuzda tut.
 
 ## Baskı asistanı
 
@@ -146,7 +150,6 @@ npm run tauri dev        # geliştirme
 npm test                 # testler
 npm run tauri build      # kurulum dosyası
 npx tsx tools/brand.ts   # kurumsal kimlik kılavuzu, logolar, uygulama içi logo ve kurulum ikonu (.svg)
-npx tsx tools/thumbs.ts  # şablon küçük resimleri ve örnek kaideler
 ```
 
 - `src/core`: geometri çekirdeği (manifold-3d). Arayüzden bağımsızdır; belge bir tariftir (JSON).

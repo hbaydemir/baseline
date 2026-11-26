@@ -96,7 +96,7 @@ export async function libDelete(path: string) {
   if (desktop) return invoke<void>('lib_delete', { path });
   const all = local(); delete all[path]; localStorage.setItem(LS, JSON.stringify(all));
 }
-export const libOpen = () => desktop ? invoke<void>('lib_open') : Promise.resolve();
+export const libOpen = (which: 'tpl' | 'user' = 'user') => desktop ? invoke<void>('lib_open', { which }) : Promise.resolve();
 /** Dosya seçtirip ham baytlarını verir. */
 export function pickBytes(accept: string): Promise<{ name: string; data: Uint8Array }[]> {
   return new Promise(res => {

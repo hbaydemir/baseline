@@ -1,7 +1,7 @@
 // 2B vektör düzenleyici (CorelDRAW alışkanlıklarıyla): yüzeye çiz, vektörde düzenle, kilit yerleri ve serbest vektör çizimi.
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type PointerEvent as PE, type ReactNode } from 'react';
 import {
-  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, Layers3, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter,
   ArrowDownToLine, ArrowUpToLine, Box, ChevronUp, Combine, Copy, Crosshair, Eraser, Eye, EyeOff, FileDown, FileUp, FlipHorizontal2, FlipVertical2, Group, Hand, ImageUp, Lock, LockOpen,
   Magnet, Maximize, Printer, PrinterX, Palette, PenLine, Move, Sparkles, Frame, Send, Merge, MousePointer2, PenTool, Pencil, Pipette, Plus, Redo2, RotateCcw, RotateCw, Ruler, Scissors, Shapes, Spline, SquaresExclude, SquaresIntersect, SquaresSubtract, Trash2, Type, Undo2, Ungroup, X, ZoomIn,
 } from 'lucide-react';
@@ -65,9 +65,9 @@ async function imageData(name: string, data: Uint8Array): Promise<{ src: string;
   const out = { src, w: bmp.width, h: bmp.height }; bmp.close(); return out;
 }
 export interface Decal { kind: 'raise' | 'cut'; depth: number }
-interface Props { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; note?: string; onSave?(svg: string, items: V.Item[]): void; onClose(): void; free?: FreeMode; onSendTo2d?(items: V.Item[]): void; decal?: Decal; onDecal?(d: Decal): void }
+interface Props { kernel: Kernel; title: string; initial: V.Item[]; guide?: string; note?: string; onSave?(svg: string, items: V.Item[]): void; onClose(): void; free?: FreeMode; onSendTo2d?(items: V.Item[]): void; decal?: Decal; onDecal?(d: Decal): void; /** Üst başlıktaki İçe / Dışa aktar bu düzenleyiciye bağlanır. */ api?: MutableRefObject<VectorApi | null> }
 
-export function VectorEditor({ kernel, title, initial, guide, note, onSave, onClose, free, onSendTo2d, decal, onDecal }: Props) {
+export function VectorEditor({ kernel, title, initial, guide, note, onSave, onClose, free, onSendTo2d, decal, onDecal, api }: Props) {
   const isFree = !!free, hidden = !!free?.hidden;
   const [assets, setAssets] = useState<Record<string, string>>(free?.sketch?.assets ?? {});
   const [layers, setLayers] = useState<IO.Layer[]>(() => free?.sketch?.layers?.length ? free.sketch.layers : [{ id: 1, name: 'Katman 1' }]);
@@ -106,7 +106,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const [edit, setEdit] = useState<{ id: number; caret: number; a: number; b: number } | null>(null);
   const [picked, setPicked] = useState<Partial<V.Item> | null>(null);
   const [eraser, setEraser] = useState(1.5);
-  const [menu, setMenu] = useState<null | 'shapes' | 'export' | 'import' | 'board' | 'send'>(null);
+  const [menu, setMenu] = useState<null | 'shapes' | 'export' | 'import' | 'board' | 'send' | 'talign'>(null), [talignAt, setTalignAt] = useState<[number, number]>([0, 0]);
   const dragRow = useRef<number[] | null>(null), [dropAt, setDropAt] = useState<string | null>(null);
   const [trace, setTrace] = useState<null | { src: string; bmp: ImageBitmap; from: number }>(null);
   const [tracePrev, setTracePrev] = useState<V.Item[] | null>(null), [traceDel, setTraceDel] = useState(false), [traceBusy, setTraceBusy] = useState(false);
@@ -228,7 +228,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     if (patch.font && !(await os.ensureFont(kernel, patch.font))) alert('Bu yazı tipi okunamadı');
     const lo = Math.min(edit.a, edit.b), hi = Math.max(edit.a, edit.b);
     setItems(a => a.map(x => { if (x.id !== edit.id || !x.text) return x; const n = [...x.text.value].length, cs = Array.from({ length: n }, (_, i) => x.text!.cs?.[i] ?? null); for (let i = lo; i < hi && i < n; i++) cs[i] = { ...(cs[i] ?? {}), ...patch }; return relayout(x, { cs }); }));
-    setTimeout(() => ta.current?.focus(), 0); return true;
+    setTimeout(() => ta.current?.focus({ preventScroll: true }), 0); return true;
   };
   const editText = async (it: V.Item, patch: Partial<V.TextMeta>) => { if (patch.font !== undefined && !(await os.ensureFont(kernel, patch.font))) alert('Bu yazı tipi okunamadı; Baloo kullanılıyor'); try { setItems(a => a.map(x => x.id === it.id ? relayout(x, patch) : x)); } catch (e) { alert((e as Error).message); } };
   const textItem = selItems.length === 1 && selItems[0].text ? selItems[0] : null;
@@ -463,7 +463,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     return added;
   };
   const importPick = async () => { setMenu(null); const fs = await os.pickBytes('.svg,.pdf,.ai,.dxf,.png,.jpg,.jpeg,.webp,.bmp,.gif,.tif,.tiff'); if (fs.length) await dropFiles(fs); };
-  if (free?.api) free.api.current = { importPick: () => void importPick(), exportAs: k => void exportAs(k), drop: fs => void dropFiles(fs) };
+  const apiRef = free?.api ?? api;
+  if (apiRef) apiRef.current = { importPick: () => void importPick(), exportAs: k => void exportAs(k), drop: fs => void dropFiles(fs) };
   /** Seçili resmi (yoksa dosyadan gelen resmi) vektöre çevirme penceresini açar. */
   const traceItem = async (it: V.Item) => { const src = it.img && assets[it.img.key]; if (!src) return; try { const bmp = await createImageBitmap(await (await fetch(src)).blob()); setTracePrev(null); setTrace({ src, bmp, from: it.id }); } catch { alert('Resim açılamadı'); } };
   const pickImage = async () => {
@@ -493,7 +494,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const addBoard = (name: string, w: number, h: number) => { const r = boards.length ? Math.max(...boards.map(b => b.x + b.w)) + 20 : 0, y = boards[0]?.y ?? 0, b = { id: V.newId(), name, x: r, y, w, h }; setBoards(bs => [...bs, b]); setSelBoard(b.id); setMenu(null); fitTo({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h }); };
 
   // --- yazı düzenleme (ekranda) ---
-  const startEdit = (id: number, caret?: number) => { const it = itemsRef.current.find(i => i.id === id); if (!it?.text) return; setToolRaw('text'); setSel([id]); const c = caret ?? [...it.text.value].length; setEdit({ id, caret: c, a: c, b: c }); setTimeout(() => { const t = ta.current; if (t) { t.value = it.text!.value; t.focus(); t.setSelectionRange(c, c); } }, 0); };
+  const startEdit = (id: number, caret?: number) => { const it = itemsRef.current.find(i => i.id === id); if (!it?.text) return; setToolRaw('text'); setSel([id]); const c = caret ?? [...it.text.value].length; setEdit({ id, caret: c, a: c, b: c }); setTimeout(() => { const t = ta.current; if (t) { t.value = it.text!.value; t.focus({ preventScroll: true }); t.setSelectionRange(c, c); } }, 0); };
   const endEdit = () => { if (!edit) return; const it = itemsRef.current.find(i => i.id === edit.id); if (it && !it.text?.value.trim()) setItems(a => a.filter(x => x.id !== edit.id), false); setEdit(null); };
   const onType = () => {
     const t = ta.current; if (!t || !edit) return; const v = t.value, cur = itemsRef.current.find(x => x.id === edit.id);
@@ -511,6 +512,15 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   };
   const editItem = edit ? items.find(i => i.id === edit.id) : undefined;
   const carets = editItem?.text ? O.layoutText(kernel, editItem.text) : null;
+  /** Yazarken imleç tuvalden çıkarsa görünüm imleci takip eder (sayfa değil, çizim görünümü kayar). */
+  const caretPt = carets && edit ? carets.carets[Math.min(edit.caret, carets.carets.length - 1)] : undefined;
+  useEffect(() => {
+    if (!caretPt || !size.w) return;
+    const [sx, sy] = toScreen(caretPt.x, caretPt.y), m = Math.min(80, size.w / 4), mv = { x: 0, y: 0 };
+    if (sx > size.w - m) mv.x = sx - (size.w - m) + size.w / 3; else if (sx < m) mv.x = sx - m - size.w / 3;
+    if (sy > size.h - m) mv.y = sy - (size.h - m); else if (sy < m) mv.y = sy - m;
+    if (mv.x || mv.y) setView(v => ({ ...v, x: v.x + mv.x / v.s, y: v.y + mv.y / v.s }));
+  }, [caretPt?.x, caretPt?.y]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const finishPen = () => { if (pen && pen.pts.length > 1) add({ ...styled([pen]), fill: pen.closed ? fill : null, stroke: pen.closed && fill ? stroke : stroke ?? '#222222', name: 'Eğri' }); setPen(null); };
 
@@ -847,7 +857,11 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
         <A t="Alta hizala (B)" off={!sel.length} on={() => align('b')}><AlignEndHorizontal /></A>
         <A t={area ? 'Yüzeyin ortasına al (P)' : 'Sayfanın ortasına al (P)'} off={!sel.length} on={() => align('p')}><Crosshair /></A>
         <A t="Yatay eşit dağıt (3+ nesne)" off={units(sel).length < 3} on={() => distribute(true)}><AlignHorizontalDistributeCenter /></A>
-        <A t="Dikey eşit dağıt (3+ nesne)" off={units(sel).length < 3} on={() => distribute(false)}><AlignVerticalDistributeCenter /></A><i />
+        <A t="Dikey eşit dağıt (3+ nesne)" off={units(sel).length < 3} on={() => distribute(false)}><AlignVerticalDistributeCenter /></A>
+        {(() => { const tx = textItem?.text, al = tx?.align ?? 'left', Ic = { left: AlignLeft, center: AlignCenter, right: AlignRight, justify: AlignJustify }[al] ?? AlignLeft; return <div className="vmenu talign">
+          <button className={'ib' + (menu === 'talign' ? ' on' : '')} disabled={!tx} title={tx ? 'Yazı hizası' : 'Yazı hizası (önce bir yazı seç)'} aria-label="Yazı hizası" aria-expanded={menu === 'talign'} onClick={e => { const q = e.currentTarget.getBoundingClientRect(); setTalignAt([q.left + q.width / 2, q.bottom + 8]); setMenu(menu === 'talign' ? null : 'talign'); }}><Ic /></button>
+          {menu === 'talign' && textItem && <div className="vpop talign-pop" role="menu" style={{ left: talignAt[0], top: talignAt[1] }}>{([['left', 'Sola yasla', AlignLeft], ['center', 'Ortala', AlignCenter], ['right', 'Sağa yasla', AlignRight], ...(tx?.box ? [['justify', 'İki yana yasla', AlignJustify]] : [])] as [string, string, typeof AlignLeft][]).map(([k, l, I]) => <button key={k} role="menuitemradio" aria-checked={al === k} className={al === k ? 'on' : ''} title={l} aria-label={l} onClick={() => { editText(textItem, { align: k as 'left' }); setMenu(null); }}><I /></button>)}</div>}
+        </div>; })()}<i />
         <A t="Kaynaştır (weld)" off={sel.length < 2} on={() => bool('union')}><Merge /></A>
         <A t="Kırp: alttakinden üsttekileri çıkar (trim)" off={sel.length < 2} on={() => bool('subtract')}><SquaresSubtract /></A>
         <A t="Kesişim" off={sel.length < 2} on={() => bool('intersect')}><SquaresIntersect /></A>
@@ -866,25 +880,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       </div>
       <div className="vt-end">
       <button className={magnet ? 'ib active' : 'ib'} title="Mıknatıs: sürüklerken diğer nesnelere, sayfaya ve kılavuzlara hizalanır (Alt basılıyken kapalı)" aria-pressed={magnet} onClick={() => setMagnet(!magnet)}><Magnet /></button>
-      {!isFree && <>
-      <div className="vmenu"><button className="tb" onClick={() => setMenu(menu === 'import' ? null : 'import')}><FileUp />İçe aktar</button>
-        {menu === 'import' && <div className="vpop" ref={placePop}><button onClick={() => void importPick()}>Dosya seç…<small>Resim, SVG, PDF / AI, DXF; sürükleyip de bırakabilirsin</small></button></div>}</div>
-      <div className="vmenu"><button className="tb" onClick={() => setMenu(menu === 'export' ? null : 'export')} title="Birebir mm ölçüyle: Corel, Illustrator, lazer ya da UV baskı için"><FileDown />Dışa aktar</button>
-        {menu === 'export' && <div className="vpop" ref={placePop}>
-          {isFree ? <>
-            <button onClick={() => exportAs('pdf-pages')}>PDF — her artboard ayrı sayfa</button>
-            <button onClick={() => exportAs('pdf-one')}>PDF — tek sayfa<small>Tüm artboardlar tek sayfada</small></button>
-            <button onClick={() => exportAs('svg-free')}>SVG</button>
-          </> : <>
-            {guide && <button onClick={() => exportAs('svg-both')}>SVG — yüzey + tasarım<small>Yüzey sınırı kırmızı kıl çizgi</small></button>}
-            {guide && <button onClick={() => exportAs('svg-surface')}>SVG — yalnız yüzey<small>Tasarımı başka programda yapmak için</small></button>}
-            <button disabled={!items.length} onClick={() => exportAs('svg-design')}>SVG — yalnız tasarım</button>
-            {guide && <button onClick={() => exportAs('pdf-surface')}>PDF — yüzey + tasarım</button>}
-            <button disabled={!items.length} onClick={() => exportAs('pdf-design')}>PDF — yalnız tasarım</button>
-          </>}
-          <button onClick={() => exportAs('dxf')}>DXF<small>Lazer için; katmanlar renge göre</small></button>
-        </div>}</div>
-      </>}
+
       <A t="Tümünü göster (F4)" on={fitAll}><Maximize /></A>
       {isFree ? <>
         <div className="vmenu"><button className="tb primary" disabled={!items.length} onClick={() => setMenu(menu === 'send' ? null : 'send')}><Send />3D'ye gönder<ChevronUp className="flip" /></button>
@@ -893,11 +889,9 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
             <button disabled={!sel.length || !free?.onToSurface} onClick={() => { setMenu(null); free!.onToSurface!(printable(itemsRef.current.filter(i => sel.includes(i.id)))); }}>Bir yüze oturt<small>{sel.length ? 'Seçili çizim; 3D modelde yüze tıkla' : 'Önce oturtulacak çizimi seç'}</small></button>
           </div>}</div>
       </> : <>
-        {onSendTo2d && <button className="tb" title="Yüzeyin şeklini ve tasarımı 2D vektör sayfasına yeni artboard olarak taşır" onClick={() => { endEdit(); onSendTo2d(itemsRef.current); }}>Vektör sayfasına gönder</button>}
-        {decal && onDecal && <><div className="seg mini-seg"><button className={decal.kind === 'raise' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'raise' })}>Kabartma</button><button className={decal.kind === 'cut' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'cut' })}>Oyma</button></div>
-          <label className="mini">{decal.kind === 'cut' ? 'Derinlik' : 'Yükseklik'} <input type="number" min={0.2} step={0.2} value={decal.depth} onChange={e => onDecal({ ...decal, depth: Math.max(0.1, +e.target.value || 0.1) })} /> mm</label></>}
         <button className="tb" onClick={onClose}>Vazgeç</button>
-        <button className="tb primary" disabled={!items.length} onClick={saveSurface}>Kaydet ve 3B'ye al</button>
+        {onSendTo2d && <button className="tb" title="Yüzeyin şeklini ve tasarımı 2D vektör sayfasına yeni artboard olarak taşır; orada daha geniş alanda düzenlersin" onClick={() => { endEdit(); onSendTo2d(itemsRef.current); }}>Vektör sayfasına gönder</button>}
+        <button className="tb primary" disabled={!items.length} title="Çizimi 3B modele işle (kabartma ya da oyma)" onClick={saveSurface}>Düzenlemeyi bitir</button>
       </>}
       </div>
     </div>
@@ -932,7 +926,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       {free?.footer}
     </aside>
 
-    <div className="vec-canvas" ref={box} onContextMenu={e => { e.preventDefault(); if (rightPan.current) { rightPan.current = false; return; } setCm({ x: e.clientX, y: e.clientY }); }}>
+    <div className="vec-canvas" ref={box} onScroll={e => { e.currentTarget.scrollLeft = 0; e.currentTarget.scrollTop = 0; }} onContextMenu={e => { e.preventDefault(); if (rightPan.current) { rightPan.current = false; return; } setCm({ x: e.clientX, y: e.clientY }); }}>
       <svg ref={svg} viewBox={vb} width={size.w} height={size.h} onPointerDown={down} onPointerMove={moveEv} onPointerUp={up} onWheel={wheel} style={{ cursor: tool === 'pan' ? 'grab' : tool === 'select' || tool === 'node' ? 'default' : tool === 'zoom' ? 'zoom-in' : tool === 'text' ? 'text' : tool === 'pick' ? (picked ? CUR_BUCKET : CUR_DROPPER) : 'crosshair' }}>
         <defs>
           {[...clipIds].map(id => byId.get(id) && <clipPath key={id} id={`vcl${id}`}><path d={V.itemDc(byId.get(id)!)} clipRule={byId.get(id)!.even ? 'evenodd' : 'nonzero'} /></clipPath>)}
@@ -1011,6 +1005,11 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     <div className="vec-side">
       <PanelGrip />
       <Tabs id="v2d" head={selItems.length ? <div className="ins-title"><b>{selItems.length === 1 ? (one.name ?? (one.text ? `“${one.text.value.slice(0, 24)}”` : one.img ? 'Resim' : 'Eğri')) : `${units(sel).length} nesne seçili`}</b></div> : undefined}>
+      {decal && onDecal && <Card id="surface" icon={<Layers3 />} title="Yüzey" hint="3B'ye nasıl işlenecek">
+        <div className="seg seg-full"><button className={decal.kind === 'raise' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'raise' })}>Kabartma</button><button className={decal.kind === 'cut' ? 'on' : ''} onClick={() => onDecal({ ...decal, kind: 'cut' })}>Oyma</button></div>
+        <label className="field"><span>{decal.kind === 'cut' ? 'Oyma derinliği (mm)' : 'Kabartma yüksekliği (mm)'}</span><input type="number" min={0.2} step={0.2} value={decal.depth} onChange={e => onDecal({ ...decal, depth: Math.max(0.1, +e.target.value || 0.1) })} /></label>
+        <p className="hint">{decal.kind === 'cut' ? 'Çizim yüzeyden içeri oyulur.' : 'Çizim yüzeyden dışarı kabarır; ayrı renkte basabilirsin.'} Kaydedince 3B modele işlenir; sonra yüzü yeniden “Yüzeye çiz” ile açıp düzenleyebilirsin.</p>
+      </Card>}
       <Card id="color" icon={<Palette />} title="Renk" extra={<div className="seg mini-seg"><button className={mode === 'rgb' ? 'on' : ''} onClick={() => switchMode('rgb')}>RGB</button><button className={mode === 'cmyk' ? 'on' : ''} onClick={() => switchMode('cmyk')}>CMYK</button></div>}>
         <div className="ctgt">{(['fill', 'stroke'] as const).map(k => { const c = k === 'fill' ? curFill : curStroke, gr = k === 'fill' && one?.grad; return <button key={k} className={ctarget === k ? 'on' : ''} onClick={() => setCtarget(k)}>
           <span className={k === 'stroke' ? 'sw ring' : 'sw'} style={k === 'stroke' ? { borderColor: c ? C.css(c) : undefined } : { background: gr ? `linear-gradient(90deg,${gr.stops.map(q => C.css(q.c)).join(',')})` : c ? C.css(c) : undefined }}>{c ? '' : '∅'}</span>
@@ -1083,7 +1082,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
           {textItem && <label className="field"><span>Harf aralığı (mm)</span><input type="number" step={0.1} value={Math.round((textItem.text!.ls ?? 0) * 100) / 100} onChange={e => editText(textItem, { ls: +e.target.value || 0 })} /></label>}</div>
         {textItem && <>
           <div className="grid2"><label className="field"><span>Satır aralığı</span><input type="number" step={0.05} min={0.5} value={textItem.text!.lh ?? 1} onChange={e => editText(textItem, { lh: Math.max(0.5, +e.target.value || 1) })} /></label>
-            <label className="field"><span>Hiza</span><select value={textItem.text!.align ?? 'left'} onChange={e => editText(textItem, { align: e.target.value as 'left' })}><option value="left">Sol</option><option value="center">Orta</option><option value="right">Sağ</option>{textItem.text!.box && <option value="justify">İki yana</option>}</select></label></div>
+            <span /></div>
           {textItem.text!.box && <label className="field"><span>Kutu genişliği (mm)</span><input type="number" min={2} step={1} value={Math.round(textItem.text!.box.w * 10) / 10} onChange={e => editText(textItem, { box: { w: Math.max(2, +e.target.value || 2) } })} /></label>}
           {textItem.text!.path && <><label className="field"><span>Yolda kaydır (mm)</span><input type="range" min={0} max={Math.max(1, O.pathLength(textItem.text!.path.pts))} step={0.1} value={textItem.text!.path.offset} onChange={e => editText(textItem, { path: { ...textItem.text!.path!, offset: +e.target.value } })} /></label>
             <div className="grid2"><button className="tb" onClick={() => editText(textItem, { path: { ...textItem.text!.path!, flip: !textItem.text!.path!.flip } })}>Öbür tarafa al</button><button className="tb" onClick={() => editText(textItem, { path: undefined })}>Yoldan ayır</button></div></>}
@@ -1164,4 +1163,5 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     </div></div>}
   </div>;
 }
+
 

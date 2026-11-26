@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CheckCircle2, Info, AlertTriangle, XCircle, Upload, Minus, Square, ArrowDownToLine, ChevronUp, Scissors, Sun, Moon, Bot, Box, Brush, Circle, Cog, Copy, Cone, Cylinder, Diamond, Dices, Download, Eye, EyeOff, FilePlus2, FileUp, FolderOpen, Hexagon, Heart, LayoutTemplate, Magnet, Maximize, Move3d, Pentagon, PieChart, Pyramid, Redo2, RefreshCw, Rotate3d, Save, Scale3d, Shapes, Star, Torus, Trash2, Triangle, Type, Undo2, Wrench, Hammer, Nut, Ruler, DoorOpen, Package, TestTube2, Drill, Settings2, MousePointerClick, X, LifeBuoy, Gem, Sparkle, CircleDot, Lock, Columns2, Home, Egg, Earth, LoaderPinwheel } from 'lucide-react';
 import pkg from '../../package.json';
-import { apply, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
+import { apply, each, eulerOf, find, newDoc, parseDoc, serialize, type Command, type Doc, type Node, type V3 } from '../core/doc';
 import { num, resolveParams, type Vars } from '../core/expr';
 import { SHAPES } from '../core/shapes';
 import { builtBounds, Kernel, partColors, type Built } from '../core/kernel';
@@ -16,7 +16,9 @@ import { Wordmark, LogoIcon } from './Logo';
 import { PanelGrip, usePanel } from './Tabs';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { VectorApi } from './VectorEditor';
-import { Assistant, Library } from './Panels';
+import { Assistant } from './Panels';
+import { Library, type NewMeta } from './Templates';
+import { applyFields, tplPath } from '../core/template';
 import * as V from './vector';
 import * as os from './platform';
 
@@ -39,6 +41,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [path, setPathState] = useState<string | null>(null), pathRef = useRef<string | null>(null);
   const [dirty, setDirty] = useState(false);
   type Kind = 'ok' | 'info' | 'warn' | 'err';
+  const [tplName, setTplName] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: Kind; n: number } | null>(null);
   const panel = usePanel();
   const [cm3, setCm3] = useState<null | { x: number; y: number; id: string | null }>(null);
@@ -66,7 +69,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [vec, setVec] = useState<VecJob | null>(null);
   const [is2d, setIs2dState] = useState(false), [ever2d, setEver2d] = useState(false), [sketchGen, setSketchGen] = useState(0), [exp2d, setExp2d] = useState(false);
-  const vapi = useRef<VectorApi | null>(null);
+  const vapi = useRef<VectorApi | null>(null), sapi = useRef<VectorApi | null>(null);
   const setIs2d = (v: boolean) => { if (!v) flushSketch(); setIs2dState(v); if (v) { setEver2d(true); setMode('edit'); } };
   const sketchTimer = useRef(0), pendingSketch = useRef<Sketch | null>(null);
   /** Vektör çizimi belgeye yazar (geri alma geçmişine girmez; 2B'nin kendi geçmişi var). */
@@ -187,7 +190,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     for (const f of files) {
       try {
         if (/\.svg$/i.test(f.name)) { addShape('svg', { params: { svg: new TextDecoder().decode(f.data) }, name: f.name.replace(/\.svg$/i, '') }); continue; }
-        if (/\.baseline$/i.test(f.name)) { const d = parseDoc(new TextDecoder().decode(f.data)); insertDoc(d, f.name.replace(/\.baseline$/i, '')); continue; }
+        if (/\.baseline$/i.test(f.name)) { const d = parseDoc(new TextDecoder().decode(f.data)); insertDoc(d.template ? applyFields(d, {}) : d, d.template?.name ?? f.name.replace(/\.baseline$/i, '')); continue; }
         if (!MODEL.test(f.name)) { say(`Desteklenmeyen dosya: ${f.name}`, true); continue; }
         const r = importModel(kernel.wasm, f.name, f.data);
         const res = apply(docRef.current, [...r.cmds.assets.map(a => ({ op: 'asset', ...a }) as Command), ...r.cmds.nodes.map(n => ({ op: 'add', type: 'mesh', name: n.name, pos: n.pos, params: { asset: n.asset } }) as Command)], kernel.bounds);
@@ -201,13 +204,14 @@ export function App({ kernel }: { kernel: Kernel }) {
     try { const r = apply(docRef.current, [{ op: 'insert', doc: d, name }], kernel.bounds); commit(r.doc); setSel(r.created); placeNew(r.created); setDialog(null); }
     catch (e) { say((e as Error).message, true); }
   };
-  const saveTemplate = async (name: string) => {
+  /** Açık belgeyi (ya da seçili nesneleri) şablon klasörüne kaydeder; küçük resim görünümden alınır. */
+  const saveTemplate = async (m: NewMeta): Promise<string | null> => {
     const d = docRef.current, ids = sel.filter(id => d.nodes.some(n => n.id === id)), part: Doc = ids.length ? { ...d, nodes: d.nodes.filter(n => ids.includes(n.id)) } : d;
-    if (!part.nodes.length) { say('Kaydedilecek nesne yok', 'warn'); return; }
-    const safe = name.replace(/[\\/:*?"<>|]/g, '_');
-    await os.libWrite(`user:Şablonlarım/${safe}.baseline`, serialize(part));
-    const png = vp.current?.snapshot(); if (png) await os.libWrite(`user:Şablonlarım/${safe}.png`, Uint8Array.from(atob(png.split(',')[1]), c => c.charCodeAt(0)));
-    say(`“${name}” şablonlarına kaydedildi`);
+    if (!part.nodes.length) { say('Kaydedilecek nesne yok', 'warn'); return null; }
+    const { sketch: _sk, template: _t, ...rest } = part;
+    const doc: Doc = { ...rest, template: { name: m.name, category: m.category, description: m.description || undefined, thumb: vp.current?.snapshot() || undefined } };
+    try { const path = tplPath(doc.template!); await os.libWrite(path, serialize(doc)); say(`“${m.name}” şablonlara kaydedildi`); return path; }
+    catch (e) { say(`Şablon kaydedilemedi: ${(e as Error).message}`, true); return null; }
   };
 
   // --- görünüm ---
@@ -246,11 +250,23 @@ export function App({ kernel }: { kernel: Kernel }) {
     writeSketch({ ...sk, layers, boards: [...sk.boards, board], items: [...sk.items, outlineItem, ...its.map(it => ({ ...mv(it), id: V.newId(), layer: draw }))] });
     setSketchGen(n => n + 1); setVec(null); setIs2d(true); say('Yüzey ve tasarım 2D sayfasına yeni artboard olarak eklendi');
   };
-  handlers.current.surface = (s: Surface) => {
+  /** Yüzeydeki eski çizimler: aynı düzlemde, aynı nesne ağacında ve kaynağı saklı olan kabartma / oymalar. */
+  const surfVec = (n: Node): { items: V.Item[]; surf: Surface } | null => { try { return n.vec ? JSON.parse(n.vec) : null; } catch { return null; } };
+  const decalsOn = (s: Surface): Node[] => {
+    const top = docRef.current.nodes.find(t => t.id === s.id || !!find([t], s.id)); if (!top) return [];
+    const out: Node[] = [];
+    each([top], n => { const v = surfVec(n); if (!v) return; const q = v.surf, dot = q.n[0] * s.n[0] + q.n[1] * s.n[1] + q.n[2] * s.n[2], off = Math.abs((q.origin[0] - s.origin[0]) * s.n[0] + (q.origin[1] - s.origin[1]) * s.n[1] + (q.origin[2] - s.origin[2]) * s.n[2]); if (dot > 0.999 && off < 0.3) out.push(n); });
+    return out;
+  };
+  /** Yüzeye çiz: yeni çizim ya da (old verilirse) var olan çizimleri düzenleme. */
+  const openSurface = (s: Surface, old: Node[]) => {
     setMode('edit');
     const host = find(docRef.current.nodes, s.id)?.node; if (!host) return;
+    const prev = old.map(surfVec).filter((v): v is { items: V.Item[]; surf: Surface } => !!v);
+    if (prev.length) { V.bumpId(prev.flatMap(v => v.items)); const o = old[0], h = num(o.params.h ?? 1, vars); setDecal({ kind: o.hole ? 'cut' : 'raise', depth: r3(Math.max(0.2, o.hole ? h - 0.6 : h - 0.2)) }); }
     setVec({
-      title: `Yüzeye çiz: ${host.name}`, items: pendingSurface.current ? centerOn(pendingSurface.current, s.outline) : [], guide: s.outline,
+      title: `Yüzeye çiz: ${host.name}`, guide: s.outline,
+      items: prev.length ? prev.flatMap(v => v.items.map(it => ({ ...it, id: V.newId() }))) : pendingSurface.current ? centerOn(pendingSurface.current, s.outline) : [],
       to2d: its => sendTo2d(its, s.outline, host.name),
       save: (svg, items) => {
         const b = V.bounds(items); if (!b) return;
@@ -264,9 +280,16 @@ export function App({ kernel }: { kernel: Kernel }) {
           const hs = vp.current!.heights(s.id, s, pts), ok = hs.filter(Number.isFinite), lo = ok.length ? Math.min(...ok) : 0;
           effects.push({ type: 'conform', params: { grid: JSON.stringify({ x: r3(x0), y: r3(y0), dx: r3(dx), dy: r3(dy), nx, ny, h: hs.map(v => r3(Number.isFinite(v) ? v : lo)) }) } });
         }
-        const top = docRef.current.nodes.some(n => n.id === s.id), hostColor = host.color || '#cccccc', color = cut ? '' : items[0]?.fill && items[0].fill !== hostColor ? '' : PALETTE.find(c => c !== hostColor && c !== '#ffffff') ?? '#e5484d';
-        const cmds: Command[] = [{ op: 'add', type: 'svg', id: undefined, name: cut ? 'Oyma' : 'Kabartma', params: { svg, width: 0, h: r3(h) }, pos, rot, hole: cut, color, effects, guide: s.outline }];
+        const vec = JSON.stringify({ items: items.map(({ img: _i, ...it }) => it), surf: s });
+        const hostColor = host.color || '#cccccc', color = cut ? '' : old[0] && !old[0].hole ? old[0].color : items[0]?.fill && items[0].fill !== hostColor ? '' : PALETTE.find(c => c !== hostColor && c !== '#ffffff') ?? '#e5484d';
         try {
+          if (old.length) { // düzenleme: ilk çizim yerinde değişir, diğerleri birleşir
+            const o = old[0], cmds: Command[] = [{ op: 'replace', id: o.id, type: 'svg', params: { svg, width: 0, h: r3(h) }, effects }, { op: 'update', id: o.id, pos, rot, hole: cut, color, name: cut ? 'Oyma' : 'Kabartma', guide: s.outline, vec }];
+            if (old.length > 1) cmds.push({ op: 'remove', ids: old.slice(1).map(n => n.id) });
+            const r = apply(docRef.current, cmds, kernel.bounds); commit(r.doc); setSel([o.id]); setVec(null); say('Yüzeydeki çizim güncellendi'); return;
+          }
+          const top = docRef.current.nodes.some(n => n.id === s.id);
+          const cmds: Command[] = [{ op: 'add', type: 'svg', id: undefined, name: cut ? 'Oyma' : 'Kabartma', params: { svg, width: 0, h: r3(h) }, pos, rot, hole: cut, color, effects, guide: s.outline, vec }];
           const r = apply(docRef.current, cmds, kernel.bounds), id = r.created[0];
           const g = top ? apply(r.doc, [{ op: 'group', ids: [s.id, id], mode: 'fused', name: host.name }]) : r;
           commit(g.doc); setSel([top ? g.created[0] : id]); setVec(null);
@@ -275,6 +298,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       },
     });
   };
+  handlers.current.surface = (s: Surface) => { const old = decalsOn(s), first = old.map(surfVec).find(Boolean); openSurface(first ? first.surf : s, old); };
   handlers.current.paint = p => {
     const n = docRef.current.nodes.find(x => x.id === p.id); if (!n) return;
     const st: Stroke = { pts: p.pts, n: p.n, r: r3(p.r), color: paintColor };
@@ -282,6 +306,7 @@ export function App({ kernel }: { kernel: Kernel }) {
   };
   /** Seçili nesneyi vektör düzenleyicide aç. */
   const editVector = (node: Node) => {
+    const sv = surfVec(node); if (sv) { openSurface(sv.surf, decalsOn(sv.surf).filter(n => n.id === node.id || !!surfVec(n))); return; }
     let items: V.Item[] = [];
     try {
       const g = (k: string) => num(node.params[k] ?? SHAPES[node.type].fields.find(f => f.key === k)!.def, vars);
@@ -381,9 +406,12 @@ export function App({ kernel }: { kernel: Kernel }) {
         <button className="tb" title="Yeni belge" onClick={() => { if (okToLeave()) reset(newDoc(), null); }}><FilePlus2 />Yeni</button>
         <button className="tb" title="Aç (Ctrl+O)" onClick={openDoc}><FolderOpen />Aç</button>
         <button className="tb save-b" title={`${path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}${dirty ? ' · kaydedilmemiş değişiklik var' : ''} (Ctrl+S)`} onClick={() => { flushSketch(); setDialog('save'); }}><Save />Kaydet{dirty && <span className="dirty-dot" aria-label="Kaydedilmemiş değişiklik var" />}</button>
-        <button className="tb" title={is2d ? 'Resim (JPG, PNG, TIFF…), PDF, AI, SVG, DXF ekle. Sürükleyip bırakabilirsin.' : 'STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin.'} onClick={() => is2d ? vapi.current?.importPick() : importPick()}><Upload />İçe aktar</button>
-        <div className="hmenu"><button className="tb primary" disabled={!is2d && !doc.nodes.length} onClick={() => is2d ? setExp2d(!exp2d) : setDialog('export')}><Download />Dışa aktar</button>
-          {is2d && exp2d && <div className="hpop" onClick={() => setExp2d(false)}>
+        <button className="tb" title={is2d ? 'Resim (JPG, PNG, TIFF…), PDF, AI, SVG, DXF ekle. Sürükleyip bırakabilirsin.' : 'STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin.'} onClick={() => vec ? sapi.current?.importPick() : is2d ? vapi.current?.importPick() : importPick()}><Upload />İçe aktar</button>
+        <div className="hmenu"><button className="tb primary" disabled={!vec && !is2d && !doc.nodes.length} onClick={() => vec || is2d ? setExp2d(!exp2d) : setDialog('export')}><Download />Dışa aktar</button>
+          {vec && exp2d && <div className="hpop" onClick={() => setExp2d(false)}>
+            {([...(vec.guide ? [['svg-both', 'SVG — yüzey + tasarım', 'Yüzey sınırı kırmızı kıl çizgi'], ['svg-surface', 'SVG — yalnız yüzey', 'Tasarımı başka programda yapmak için']] : []), ['svg-design', 'SVG — yalnız tasarım', ''], ...(vec.guide ? [['pdf-surface', 'PDF — yüzey + tasarım', '']] : []), ['pdf-design', 'PDF — yalnız tasarım', ''], ['dxf', 'DXF', 'Lazer için; katmanlar renge göre']] as [string, string, string][]).map(([k, l, d]) => <button key={k} onClick={() => sapi.current?.exportAs(k)}>{l}{d && <small>{d}</small>}</button>)}
+          </div>}
+          {!vec && is2d && exp2d && <div className="hpop" onClick={() => setExp2d(false)}>
             {([['pdf-pages', 'PDF — her artboard ayrı sayfa', ''], ['pdf-one', 'PDF — tek sayfa', 'Tüm artboardlar tek sayfada'], ['ai', 'AI (Illustrator)', 'PDF uyumlu; Illustrator ve Corel açar'], ['svg-free', 'SVG', ''], ['png', 'PNG', 'Her artboard ayrı resim'], ['jpg', 'JPG', 'Her artboard ayrı resim'], ['dxf', 'DXF', 'Lazer için; katmanlar renge göre']] as const).map(([k, l, d]) => <button key={k} onClick={() => vapi.current?.exportAs(k)}>{l}{d && <small>{d}</small>}</button>)}
           </div>}</div>
       </div>
@@ -397,7 +425,7 @@ export function App({ kernel }: { kernel: Kernel }) {
       {sideCard}
     </aside>
     <main ref={host} onPointerDown={() => { if (!hideIntro) setHideIntro(true); }}>
-      {!doc.nodes.length && !is2d && !hideIntro && <div className="empty3d" onPointerDown={e => e.stopPropagation()}><button className="ib x" aria-label="Kapat" title="Kapat" onClick={() => setHideIntro(true)}><X /></button><LogoIcon size={56} /><b>Modele başla</b><p>Alttaki araç kutusundan bir şekil ekle, bir STL / 3MF / OBJ / SVG dosyasını pencereye bırak ya da şablonlardan başla.</p><div className="row2"><button className="tb" onClick={() => setDialog('library')}>Şablonlar</button><button className="tb" onClick={() => setIs2d(true)}>2D çizime geç</button></div></div>}
+      {!doc.nodes.length && !is2d && !hideIntro && <div className="empty3d" onPointerDown={e => e.stopPropagation()}><button className="ib x" aria-label="Kapat" title="Kapat" onClick={() => setHideIntro(true)}><X /></button><LogoIcon size={56} /><b>Modele başla</b><p>Alttaki araç kutusundan bir şekil ekle, bir STL / 3MF / OBJ / SVG dosyasını pencereye bırak ya da şablonlardan başla.</p><div className="row2"><button className="tb" onClick={() => { setTplName(null); setDialog('library'); }}>Şablonlar</button><button className="tb" onClick={() => setIs2d(true)}>2D çizime geç</button></div></div>}
       <div className="views">
         {([['iso', 'Perspektif'], ['top', 'Üst'], ['front', 'Ön'], ['right', 'Sağ']] as const).map(([v, l]) => <button key={v} onClick={() => vp.current?.view(v)}>{l}</button>)}
         <button title="Sığdır (F)" aria-label="Sığdır" onClick={() => vp.current?.fit()}><Maximize /></button>
@@ -433,7 +461,7 @@ export function App({ kernel }: { kernel: Kernel }) {
         <D t="Boya" active={mode === 'paint'} on={() => setMode(mode === 'paint' ? 'edit' : 'paint')}><Brush /></D>
         <D t="Ölç (M)" active={mode === 'measure'} on={() => setMode(mode === 'measure' ? 'edit' : 'measure')}><Ruler /></D>
         <i />
-        <D t="Şablonlar ve tasarım havuzu" on={() => setDialog('library')}><LayoutTemplate /></D>
+        <D t="Şablon yöneticisi" on={() => { setTplName(null); setDialog('library'); }}><LayoutTemplate /></D>
         <D t="Baskı asistanı" on={() => setDialog('assist')}><Settings2 /></D>
       </div>
       {mode === 'measure' && <div className="banner"><b>Ölç</b><span>İki noktaya tıkla; köşeye ve kenar ortasına yapışır (Shift: serbest). Yeni ölçü için tekrar tıkla.</span><button onClick={() => { setMode('edit'); setTimeout(() => setMode('measure'), 0); }}>Temizle</button><button className="ib" aria-label="Kapat" onClick={() => setMode('edit')}><X /></button></div>}
@@ -456,10 +484,10 @@ export function App({ kernel }: { kernel: Kernel }) {
           dims={(() => { const b = bounds(node.id); return b ? [0, 1, 2].map(i => b.max[i] - b.min[i]) : null; })()} local={doc.nodes.includes(node) ? localDims(node.id) : null}
           uniform={uniform} setUniform={setUniform}
           onUngroup={() => { const kids = node.children!.map(c => c.id); if (run([{ op: 'ungroup', id: node.id }])) setSel(kids); }}
-          onVector={() => editVector(node)} onSplit={() => startSplit(node)} onPins={() => editPins(node)} onTemplate={() => { const n = prompt('Şablon adı', node.name); if (n) void saveTemplate(n); }} onPaint={() => setMode('paint')} />
+          onVector={() => editVector(node)} onSplit={() => startSplit(node)} onPins={() => editPins(node)} onTemplate={() => { setTplName(node.name); setDialog('library'); }} onPaint={() => setMode('paint')} />
           : <DocPanel doc={doc} vars={vars} run={run} />}
     </aside>
-    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu', which: 'Belgeyi aç', save: 'Kaydet' }[dialog]}>
+    {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablon yöneticisi', which: 'Belgeyi aç', save: 'Kaydet' }[dialog]}>
       {dialog === 'export' && <ExportBox built={built} name={path?.split(/[\\/]/).pop()?.replace('.baseline', '') ?? 'model'} say={say} close={() => setDialog(null)} />}
       {dialog === 'ai' && <AiBox path={path} />}
       {dialog === 'update' && <UpdateBox known={upd} />}
@@ -474,9 +502,9 @@ export function App({ kernel }: { kernel: Kernel }) {
       </div>}
       {dialog === 'which' && <><p>Bu belgede hem 3D model hem vektör çizim var. Hangisini açayım?</p><div className="row2"><button className="tb primary" onClick={() => { setDialog(null); setIs2d(false); }}>3D model</button><button className="tb" onClick={() => { setDialog(null); setIs2d(true); }}>Vektör çizim</button></div><p className="hint">Sonra soldaki 2D / 3D anahtarıyla geçebilirsin.</p></>}
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
-      {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
+      {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} createName={tplName} hasScene={doc.nodes.length > 0} />}
     </Modal>}
-    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} onClose={() => setVec(null)} decal={vec.to2d ? decal : undefined} onDecal={setDecal} />}
+    {vec && <VectorEditor kernel={kernel} title={vec.title} initial={vec.items} guide={vec.guide} note={vec.hint} onSave={vec.save} onSendTo2d={vec.to2d} api={sapi} onClose={() => setVec(null)} decal={vec.to2d ? decal : undefined} onDecal={setDecal} />}
     {ever2d && <VectorEditor key={sketchGen} kernel={kernel} title="" initial={[]} onClose={() => setIs2d(false)} free={{
       sketch: (docRef.current.sketch as Sketch | undefined) ?? null, hidden: !is2d, api: vapi, onChange: onSketch, footer: sideCard,
       onToSurface: its => { if (!its.length) return; pendingSurface.current = its; setIs2d(false); setMode('surface'); say('Çizimi oturtmak için 3D modelde bir yüze tıkla'); },

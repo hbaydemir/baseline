@@ -383,3 +383,54 @@ input[type=range],input[type=checkbox],input[type=radio]{accent-color:#1677ff}
 .toast svg{width:17px;height:17px;flex:none}
 .toast.t-ok{background:#1f8f4e;color:#fff}.toast.t-info{background:#1c2733;color:#fff}.toast.t-warn{background:#f5a524;color:#3a2600}.toast.t-err{background:#d93a3f;color:#fff}
 @keyframes toastIn{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
+/* --- 0.8: şablon yöneticisi --- */
+.tm{display:flex;flex-direction:column;gap:10px;min-height:min(70vh,640px)}
+.tm .seg{margin-top:0}
+.tm-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.tm-bar .search{flex:1;min-width:180px;margin:0}.tm-bar .tb svg{width:15px;height:15px}
+.tm-form{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:12px;border:1px solid #e3e9ef;border-radius:12px;background:#f8fafc}.tm-form .tm-desc,.tm-form .hint,.tm-form .row2{grid-column:1/-1}
+.tm-form textarea{width:100%;resize:vertical;padding:7px 9px;border:1px solid #d6dee6;border-radius:8px;font:inherit;background:#fff;color:inherit}
+.tm-body{display:grid;grid-template-columns:200px 1fr;gap:14px;flex:1;min-height:0}
+.tm-cats{display:flex;flex-direction:column;gap:2px;overflow:auto;max-height:62vh;padding-right:4px;border-right:1px solid #e8edf2}
+.tm-cats button{display:flex;justify-content:space-between;align-items:center;gap:6px;width:100%;padding:6px 9px;border:0;border-radius:7px;background:none;text-align:left;font-size:13px;color:inherit}
+.tm-cats button:hover{background:#eef3f8}.tm-cats button.on{background:#e7f0ff;color:#1677ff;font-weight:600}.tm-cats button.sub{padding-left:20px;font-size:12.5px}
+.tm-cats small{color:#8a97a4;font-weight:400;font-size:11px}
+.tm-main{overflow:auto;max-height:62vh;min-width:0}
+.tm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.tm-card{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:8px;border:1px solid #e3e9ef;border-radius:12px;background:#fff;text-align:left;color:inherit}
+.tm-card:hover{border-color:#1677ff;box-shadow:0 0 0 2px #1677ff22}
+.tm-card b{font-size:13px;line-height:1.3}.tm-crumb{color:#7a8794;font-size:11px}
+.tm-desc2{color:#5c6b7a;font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tm-thumb{position:relative;display:block;aspect-ratio:1;border-radius:8px;overflow:hidden;background:#eef1f4;margin-bottom:4px}
+.tm-thumb img,.tm-big img{width:100%;height:100%;object-fit:cover;display:block}
+.tm-thumb .ext,.tm-big .ext{display:grid;place-items:center;width:100%;height:100%;font:700 22px Sora,system-ui;color:#9aa8b6}
+.tm-ok{position:absolute;top:6px;right:6px;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#1677ff;color:#fff}.tm-ok svg{width:15px;height:15px}
+.tm-empty{display:grid;place-items:center;text-align:center;gap:4px;padding:48px 20px;border:1px dashed #d5dde5;border-radius:12px}
+.tm-detail .ghost{border:0;background:none;padding-left:0}
+.tm-dgrid{display:grid;grid-template-columns:minmax(200px,280px) 1fr;gap:18px;margin-top:6px}
+.tm-big{aspect-ratio:1;border-radius:12px;overflow:hidden;background:#eef1f4}
+.tm-info h2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 6px;font-size:19px}
+.tm-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;background:#e7f0ff;color:#1677ff;font-size:11.5px;font-weight:600}.tm-badge svg{width:14px;height:14px}
+.tm-dtext{margin:0 0 8px;line-height:1.5;white-space:pre-line}
+.tm-lock{display:flex;align-items:center;gap:6px}.tm-lock svg{width:14px;height:14px;flex:none}
+.tm-fields{display:flex;flex-direction:column;gap:10px;margin:10px 0;padding:12px;border:1px solid #e3e9ef;border-radius:12px}.tm-fields h3{margin:0;font-size:13px}
+.tm-num{display:flex;gap:8px;align-items:center}.tm-num input[type=range]{flex:1}.tm-num input[type=number]{width:76px}
+.tm-color input[type=color]{width:56px;height:30px;padding:2px;border:1px solid #d6dee6;border-radius:8px;background:#fff}
+.tm-acts{margin-top:12px}.tb.danger{color:#c62828}
+[data-theme=dark] .tm-form{background:#1f242b;border-color:#2e353e}[data-theme=dark] .tm-form textarea{background:#15181c;border-color:#39414b}
+[data-theme=dark] .tm-cats{border-color:#2e353e}[data-theme=dark] .tm-cats button:hover{background:#262c34}[data-theme=dark] .tm-cats button.on{background:#1b2c47;color:#6ea8ff}
+[data-theme=dark] .tm-card{background:#1f242b;border-color:#2e353e}[data-theme=dark] .tm-thumb,[data-theme=dark] .tm-big{background:#15181c}
+[data-theme=dark] .tm-fields,[data-theme=dark] .tm-empty{border-color:#2e353e}[data-theme=dark] .tm-badge{background:#1b2c47;color:#6ea8ff}
+@media (max-width:760px){.tm-body,.tm-dgrid{grid-template-columns:1fr}.tm-cats{flex-direction:row;flex-wrap:wrap;max-height:none;border:0}.tm-cats button{width:auto}}
+dialog.big:has(.tm){width:min(1180px,96vw)}
+.tm-num{display:flex!important;flex-direction:row}.tm-num input[type=range]{flex:1;width:auto;min-width:90px}
+/* yazı düzenlerken gizli metin alanı tuvali kaydırmasın */
+.vec-canvas{overflow:clip}
+/* --- yazı hizası açılır menüsü (üst çubuk) --- */
+.vmenu.talign{position:relative;display:inline-flex}
+.vmenu.talign>.ib{width:30px;height:30px}.vmenu.talign>.ib.on{background:#e7f0ff;color:#1677ff}
+.vpop.talign-pop{position:fixed;right:auto;bottom:auto;transform:translateX(-50%);display:flex;flex-direction:row;gap:2px;padding:4px;min-width:0;width:max-content;z-index:30}
+.vpop.talign-pop::before{content:'';position:absolute;top:-5px;left:50%;width:9px;height:9px;background:inherit;border-left:inherit;border-top:inherit;transform:translateX(-50%) rotate(45deg)}
+.vpop.talign-pop button{display:grid;place-items:center;width:30px;height:30px;padding:0;border:0;border-radius:7px;background:none;color:inherit}
+.vpop.talign-pop button:hover{background:#eef3f8}.vpop.talign-pop button.on{background:#e7f0ff;color:#1677ff}
+.vpop.talign-pop svg{width:17px;height:17px}
+[data-theme=dark] .vmenu.talign>.ib.on,[data-theme=dark] .vpop.talign-pop button.on{background:#1b2c47;color:#6ea8ff}[data-theme=dark] .vpop.talign-pop button:hover{background:#262c34}

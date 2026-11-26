@@ -1,6 +1,7 @@
 import { num, resolveParams, type Num, type Vars } from './expr';
 import { EFFECTS, SHAPES, SPLIT, type Field } from './shapes';
 import type { Stroke } from './paint';
+import type { TemplateMeta } from './template';
 
 export type V3 = [Num, Num, Num];
 export type Mode = 'linked' | 'fused' | 'split';
@@ -11,12 +12,14 @@ export interface Node {
   effects?: EffectUse[]; paint?: Stroke[];
   /** Vektör düzenleyicide arka plan olarak gösterilecek yüzey çizgisi (SVG yolu, mm). */
   guide?: string;
+  /** Yüzeye çizimin düzenlenebilir kaynağı (JSON: çizim öğeleri ve yüzey). */
+  vec?: string;
 }
 export interface EffectUse { type: string; params: Record<string, Num>; off?: boolean }
-export interface Doc { format: 'baseline'; version: 1; params: Record<string, Num>; nodes: Node[]; assets?: Record<string, string>; /** Serbest vektör çizimi (düzenleyicinin verisi). */ sketch?: unknown }
+export interface Doc { format: 'baseline'; version: 1; params: Record<string, Num>; nodes: Node[]; assets?: Record<string, string>; /** Serbest vektör çizimi (düzenleyicinin verisi). */ sketch?: unknown; /** Şablon bilgisi (ad, kategori, açıklama, alanlar). */ template?: TemplateMeta }
 export const newDoc = (): Doc => ({ format: 'baseline', version: 1, params: { tolerans: 0.2 }, nodes: [] });
 
-interface Place { pos?: V3; rot?: V3; scale?: V3; color?: string; hole?: boolean; hidden?: boolean; name?: string; params?: Record<string, Num>; effects?: EffectUse[]; paint?: Stroke[]; guide?: string }
+interface Place { pos?: V3; rot?: V3; scale?: V3; color?: string; hole?: boolean; hidden?: boolean; name?: string; params?: Record<string, Num>; effects?: EffectUse[]; paint?: Stroke[]; guide?: string; vec?: string }
 export type Command =
   | ({ op: 'add'; type: string; id?: string } & Place)
   | ({ op: 'update'; id: string } & Place)
@@ -104,6 +107,7 @@ function applyPlace(node: Node, c: Place, vars: Vars) {
   if (c.effects) node.effects = checkEffects(c.effects, node.type, vars);
   if (c.paint) node.paint = checkPaint(c.paint);
   if (c.guide !== undefined) node.guide = String(c.guide);
+  if (c.vec !== undefined) { if (c.vec) node.vec = String(c.vec); else delete node.vec; }
 }
 export const each = (nodes: Node[], f: (n: Node) => void) => nodes.forEach(n => { f(n); if (n.children) each(n.children, f); });
 
@@ -275,6 +279,7 @@ export function parseDoc(text: string): Doc {
     checkParams(n.type, n.params, vars, n.mode); checkV3(n.pos, vars, n.id); checkV3(n.rot, vars, n.id); checkV3(n.scale, vars, n.id);
     if (n.effects) n.effects = checkEffects(n.effects, n.type, vars);
     if (n.paint) n.paint = checkPaint(n.paint);
+    if (n.vec !== undefined && typeof n.vec !== 'string') delete n.vec;
     checkAsset(d, n);
     if (!/^(#[0-9a-f]{6})?$/i.test(n.color)) throw new Error(`Geçersiz renk: ${n.id}`);
   });
