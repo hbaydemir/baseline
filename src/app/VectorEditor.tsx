@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as PE, type ReactNode } from 'react';
-import { Circle, Combine, Copy, FlipHorizontal2, FlipVertical2, Hand, Heart, Hexagon, ImagePlus, Maximize, MousePointer2, PenTool, Pencil, Redo2, Spline, Square, Star, Trash2, Type, Undo2, ArrowUpToLine, ArrowDownToLine, SquaresSubtract, SquaresIntersect } from 'lucide-react';
+import { Circle, Combine, Copy, FlipHorizontal2, FlipVertical2, Hand, Heart, Hexagon, ImagePlus, Maximize, MousePointer2, PenTool, Pencil, Redo2, Spline, Square, Star, Trash2, Type, Undo2, ArrowUpToLine, ArrowDownToLine, SquaresSubtract, SquaresIntersect, RotateCcw, RotateCw, FileDown } from 'lucide-react';
 import type { Kernel } from '../core/kernel';
 import { plainPaths } from '../core/svg';
 import * as V from './vector';
@@ -61,7 +61,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const snap = (v: number, e: { shiftKey: boolean }) => e.shiftKey ? v : Math.round(v / 0.5) * 0.5;
 
   const selItems = items.filter(it => sel.includes(it.id));
-  const makeText = (t: V.TextMeta, fillC: string): Omit<V.Item, 'id'> => ({ subs: V.parseD(kernel.textPath(t.value, t.size, t.font)).map(s => ({ ...s, pts: s.pts.map(p => ({ ...p, x: p.x + t.x, y: p.y + t.y, ...(p.ix !== undefined ? { ix: p.ix + t.x, iy: p.iy! + t.y } : {}), ...(p.ox !== undefined ? { ox: p.ox + t.x, oy: p.oy! + t.y } : {}) })) })), fill: fillC, stroke: null, sw: 1, even: false, text: t });
+  const makeText = (t: V.TextMeta, fillC: string): Omit<V.Item, 'id'> => { const it = makeText0(t, fillC); return t.rot ? { ...V.mapItem(it as V.Item, V.rotFn(t.rot, t.x, t.y)), text: t } : it; };
+  const makeText0 = (t: V.TextMeta, fillC: string): Omit<V.Item, 'id'> => ({ subs: V.parseD(kernel.textPath(t.value, t.size, t.font)).map(s => ({ ...s, pts: s.pts.map(p => ({ ...p, x: p.x + t.x, y: p.y + t.y, ...(p.ix !== undefined ? { ix: p.ix + t.x, iy: p.iy! + t.y } : {}), ...(p.ox !== undefined ? { ox: p.ox + t.x, oy: p.oy! + t.y } : {}) })) })), fill: fillC, stroke: null, sw: 1, even: false, text: t });
   const editText = async (it: V.Item, patch: Partial<V.TextMeta>) => { const t = { ...it.text!, ...patch }; if (!t.value.trim() || !(t.size > 0)) return; try { if (!(await os.ensureFont(kernel, t.font))) alert('Bu yazı tipi okunamadı; Baloo kullanılıyor'); const n = makeText(t, it.fill ?? '#222222'); setItems(a => a.map(x => x.id === it.id ? { ...x, ...n, fill: x.fill, stroke: x.stroke, sw: x.sw } : x)); } catch (e) { alert((e as Error).message); } };
   const textItem = selItems.length === 1 && selItems[0].text ? selItems[0] : null;
   const sb = V.bounds(selItems);
@@ -75,6 +76,10 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     if (sel.length) { setItems(a => a.filter(x => !sel.includes(x.id))); setSel([]); }
   };
   const transform = (f: (x: number, y: number) => [number, number], k = 1) => setItems(a => a.map(x => sel.includes(x.id) ? V.mapItem(x, f, k) : x));
+  const rotate = (deg: number) => { if (!sb) return; const cx = (sb.x0 + sb.x1) / 2, cy = (sb.y0 + sb.y1) / 2; setItems(a => a.map(x => sel.includes(x.id) ? V.rotateItem(x, deg, cx, cy) : x)); };
+  const mirror = (f: (x: number, y: number) => [number, number]) => setItems(a => a.map(x => sel.includes(x.id) ? { ...V.mapItem(x, f), text: undefined } : x));
+  const [rotStep, setRotStep] = useState(90);
+  const saveSvg = async (what: 'both' | 'surface' | 'design') => { const name = (title.split(':').pop() || 'cizim').trim().replace(/[\\/:*?"<>|]+/g, '') + (what === 'design' ? '-tasarim' : '-yuzey') + '.svg'; try { await os.writeFiles([{ name, data: new TextEncoder().encode(V.exportSvg(itemsRef.current, guide, what)) }]); } catch (e) { alert((e as Error).message); } };
   /** Köşe işlemi: düğüm modunda seçili düğümler ya da seçili iki kenarın ortak düğümü; seçim modunda tüm keskin köşeler. */
   const doCorner = (st: 'chamfer' | 'round') => {
     const targets: Sel[] = [...nodes];
@@ -125,7 +130,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     if (draft) {
       const [x0, y0] = draft.a, [x1, y1] = draft.b, w = Math.abs(x1 - x0), h = Math.abs(y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, r = Math.max(w, h) / 2;
       setDraft(null);
-      if (Math.max(w, h) > 0.4) shape([tool === 'rect' ? V.rectSub(Math.min(x0, x1), Math.min(y0, y1), w, h) : tool === 'ellipse' ? V.ellipseSub(cx, cy, w / 2, h / 2) : tool === 'polygon' ? V.polySub(cx, cy, r, sides) : tool === 'star' ? V.polySub(cx, cy, r, sides, r * 0.45) : V.heartSub(cx, cy, r * 2)]);
+      if (Math.max(w, h) > 0.4) shape([tool === 'rect' ? V.rectSub(Math.min(x0, x1), Math.min(y0, y1), w, h) : tool === 'ellipse' ? V.ellipseSub(cx, cy, w / 2, h / 2) : tool === 'polygon' ? V.polySub(cx, cy, r, sides) : tool === 'star' ? V.polySub(cx, cy, r, sides, r * 0.45) : V.heartSub(cx, cy, r * 2)]), setTool('select');
     }
     if (ink) { if (ink.length > 2) { const closed = Math.hypot(ink[0][0] - ink[ink.length - 1][0], ink[0][1] - ink[ink.length - 1][1]) < 12 * px; add({ subs: [V.smooth(ink, 1.2 * px, closed)], fill: closed ? fill ?? '#4f8cff' : null, stroke: closed && fill ? null : '#222222', sw: 1, even: false }); } setInk(null); }
   };
@@ -144,7 +149,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     const ax = cx === sb.x0 ? sb.x1 : sb.x0, ay = cy === sb.y0 ? sb.y1 : sb.y0;
     drag.current = (x, y, ev) => {
       let f: (a: number, b: number) => [number, number], k = 1;
-      if (kind === 'rot') { let r = Math.atan2(y - my, x - mx) - Math.atan2(y0 - my, x0 - mx); if (!ev.shiftKey) r = Math.round(r / (Math.PI / 12)) * Math.PI / 12; const c = Math.cos(r), s = Math.sin(r); f = (a, b) => [mx + (a - mx) * c - (b - my) * s, my + (a - mx) * s + (b - my) * c]; }
+      if (kind === 'rot') { let r = Math.atan2(y - my, x - mx) - Math.atan2(y0 - my, x0 - mx); if (!ev.shiftKey) r = Math.round(r / (Math.PI / 12)) * Math.PI / 12; const deg = r * 180 / Math.PI; setItems(base.map(q => sel.includes(q.id) ? V.rotateItem(q, deg, mx, my) : q), first); first = false; return; }
       else { let sx = (x - ax) / ((x0 - ax) || 1), sy = (y - ay) / ((y0 - ay) || 1); if (!ev.shiftKey) sx = sy = Math.abs(sx) > Math.abs(sy) ? sx : sy; k = Math.sqrt(Math.abs(sx * sy)); f = (a, b) => [ax + (a - ax) * sx, ay + (b - ay) * sy]; }
       setItems(base.map(q => sel.includes(q.id) ? V.mapItem(q, f, k) : q), first); first = false;
     };
@@ -205,12 +210,19 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       <A t="Birleştir" off={sel.length < 2} on={() => bool('union')}><Combine /></A>
       <A t="Alttakinden çıkar" off={sel.length < 2} on={() => bool('subtract')}><SquaresSubtract /></A>
       <A t="Kesişim" off={sel.length < 2} on={() => bool('intersect')}><SquaresIntersect /></A>
-      <A t="Yatay aynala" off={!sb} on={() => sb && transform((x, y) => [sb.x0 + sb.x1 - x, y])}><FlipHorizontal2 /></A>
-      <A t="Dikey aynala" off={!sb} on={() => sb && transform((x, y) => [x, sb.y0 + sb.y1 - y])}><FlipVertical2 /></A><i />
+      <A t="90° sola döndür" off={!sb} on={() => rotate(-90)}><RotateCcw /></A>
+      <A t="90° sağa döndür" off={!sb} on={() => rotate(90)}><RotateCw /></A>
+      <A t="Yatay aynala" off={!sb} on={() => sb && mirror((x, y) => [sb.x0 + sb.x1 - x, y])}><FlipHorizontal2 /></A>
+      <A t="Dikey aynala" off={!sb} on={() => sb && mirror((x, y) => [x, sb.y0 + sb.y1 - y])}><FlipVertical2 /></A><i />
       <label className="mini">Köşe <input type="number" min={0.1} step={0.1} value={corner} onChange={e => setCorner(Math.max(0.05, +e.target.value || 0.05))} /> mm</label>
       <button title={nodes.length || segs.length ? 'Seçili köşelere pah' : 'Seçili şekillerin (seçim yoksa hepsinin) tüm köşelerine pah'} onClick={() => doCorner('chamfer')}>Pah</button>
       <button title={nodes.length || segs.length ? 'Seçili köşeleri yuvarla' : 'Tüm köşeleri yuvarla'} onClick={() => doCorner('round')}>Yuvarla</button>
       <span className="grow" />
+      <details className="vec-export" onToggle={e => { const d = e.currentTarget, r = d.getBoundingClientRect(), m = d.querySelector<HTMLElement>('.vpop'); if (m) { m.style.top = `${r.bottom + 4}px`; m.style.left = `${Math.max(8, r.right - 230)}px`; } }}><summary className="tb" title="Birebir mm ölçüyle SVG: Corel, Illustrator, lazer ya da UV baskı için"><FileDown />SVG al</summary><div className="vpop">
+        {guide && <button onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void saveSvg('both'); }}>Yüzey + tasarım<small>Yüzey sınırı kırmızı ince çizgi</small></button>}
+        {guide && <button onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void saveSvg('surface'); }}>Yalnız yüzey<small>Tasarımı başka programda yapmak için</small></button>}
+        <button disabled={!items.length} onClick={e => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; void saveSvg('design'); }}>Yalnız tasarım</button>
+      </div></details>
       <A t="Sığdır" on={fit}><Maximize /></A>
       <button onClick={onClose}>Vazgeç</button>
       <button className="primary" disabled={!items.length} onClick={() => { finishPen(); onSave(V.toSvg(itemsRef.current), itemsRef.current); }}>Kaydet ve 3B'ye al</button>
@@ -269,6 +281,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       {sb && <section className="card"><header><b>Konum ve boyut (mm)</b></header>
         <div className="grid2">{([['X', sb.x0], ['Y', sb.y0], ['G', sb.x1 - sb.x0], ['Y.', sb.y1 - sb.y0]] as const).map(([l, v], k) => <label className="field" key={l}><span>{['Sol', 'Üst', 'Genişlik', 'Yükseklik'][k]}</span><input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0; if (k === 0) transform((a, b) => [a + x - sb.x0, b]); if (k === 1) transform((a, b) => [a, b + x - sb.y0]); if (k === 2 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / w, sb.y0 + (b - sb.y0) * x / w], x / w); if (k === 3 && x > 0) transform((a, b) => [sb.x0 + (a - sb.x0) * x / h, sb.y0 + (b - sb.y0) * x / h], x / h); }} /></label>)}</div>
         <button className="wide" onClick={() => { const cx = area ? (area.x0 + area.x1) / 2 : 0, cy = area ? (area.y0 + area.y1) / 2 : 0; transform((a, b) => [a - (sb.x0 + sb.x1) / 2 + cx, b - (sb.y0 + sb.y1) / 2 + cy]); setView(v => ({ ...v, x: cx, y: cy })); }}>{area ? 'Yüzeyin ortasına al' : 'Ortaya al'}</button>
+        <div className="rotrow"><span>Döndür</span><button className="ib" title="Sola döndür" aria-label="Sola döndür" onClick={() => rotate(-rotStep)}><RotateCcw /></button><input type="number" min={0.1} max={360} step={1} value={rotStep} onChange={e => setRotStep(Math.max(0.1, Math.min(360, +e.target.value || 90)))} /><span>°</span><button className="ib" title="Sağa döndür" aria-label="Sağa döndür" onClick={() => rotate(rotStep)}><RotateCw /></button></div>
       </section>}
       {textItem ? <section className="card"><header><b>Yazı</b></header>
         <label className="field"><span>Metin</span><input className="tinput" value={textItem.text!.value} onChange={e => editText(textItem, { value: e.target.value })} /></label>

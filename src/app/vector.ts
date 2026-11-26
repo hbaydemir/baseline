@@ -4,7 +4,7 @@ import type { ManifoldToplevel } from 'manifold-3d';
 export interface Pt { x: number; y: number; ix?: number; iy?: number; ox?: number; oy?: number }
 export interface Sub { pts: Pt[]; closed: boolean }
 /** text: düzenlenebilir yazı (merkez x,y); noktaları elle değişince yola dönüşür. */
-export interface TextMeta { value: string; size: number; font: string; x: number; y: number }
+export interface TextMeta { value: string; size: number; font: string; x: number; y: number; rot?: number }
 export interface Item { id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta }
 type V = [number, number];
 let nextId = 1;
@@ -55,6 +55,39 @@ export function bounds(items: Item[]) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const it of items) { const w = it.stroke ? it.sw / 2 : 0; for (const s of it.subs) for (const [x, y] of flattenSub(s, 8)) { x0 = Math.min(x0, x - w); y0 = Math.min(y0, y - w); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + w); } }
   return x0 < Infinity ? { x0, y0, x1, y1 } : null;
+}
+/** (cx, cy) çevresinde derece cinsinden döndürme. */
+export const rotFn = (deg: number, cx: number, cy: number) => { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return (a: number, b: number): V => [cx + (a - cx) * c - (b - cy) * s, cy + (a - cx) * s + (b - cy) * c]; };
+/** Öğeyi döndürür; yazıysa açısını da hatırlar (metin değişince dönük kalsın). */
+export const rotateItem = (it: Item, deg: number, cx: number, cy: number): Item => { const m = mapItem(it, rotFn(deg, cx, cy)); return m.text ? { ...m, text: { ...m.text, rot: ((m.text.rot ?? 0) + deg) % 360 } } : m; };
+/** "M a b L c d" parçalarından oluşan sınırı kapalı yollara birleştirir (Corel ve lazerde tek şekil olsun). */
+export function joinOutline(d: string): string {
+  const re = /M\s*(-?[\d.e-]+)[\s,]+(-?[\d.e-]+)\s*L\s*(-?[\d.e-]+)[\s,]+(-?[\d.e-]+)/g, segs: V[][] = [];
+  let m: RegExpExecArray | null; while ((m = re.exec(d))) segs.push([[+m[1], +m[2]], [+m[3], +m[4]]]);
+  if (!segs.length || d.replace(re, '').trim()) return d;
+  const k = (p: V) => `${Math.round(p[0] * 1e3)},${Math.round(p[1] * 1e3)}`, by = new Map<string, number[]>(), used = new Set<number>();
+  segs.forEach((s, i) => s.forEach(p => { const q = k(p); by.set(q, [...(by.get(q) ?? []), i]); }));
+  const out: string[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used.has(i)) continue; used.add(i);
+    const loop = [segs[i][0], segs[i][1]];
+    for (;;) { const end = loop[loop.length - 1], j = (by.get(k(end)) ?? []).find(x => !used.has(x)); if (j === undefined) break; used.add(j); loop.push(k(segs[j][0]) === k(end) ? segs[j][1] : segs[j][0]); }
+    const closed = loop.length > 2 && k(loop[0]) === k(loop[loop.length - 1]); if (closed) loop.pop();
+    out.push('M' + loop.map(p => `${r4(p[0])} ${r4(p[1])}`).join('L') + (closed ? 'Z' : ''));
+  }
+  return out.join('');
+}
+/** Yüzey sınırı ve tasarımı birebir mm ölçüyle SVG yapar (Corel, Illustrator, lazer, UV baskı için). */
+export function exportSvg(items: Item[], guide: string | undefined, what: 'both' | 'surface' | 'design'): string {
+  const useG = !!guide && what !== 'design', useI = what !== 'surface' && items.length > 0;
+  let b = useI ? bounds(items) : null;
+  if (useG) { const g = guide!.match(/-?[\d.]+(?:e-?\d+)?/g)!.map(Number); for (let i = 0; i + 1 < g.length; i += 2) b = b ? { x0: Math.min(b.x0, g[i]), y0: Math.min(b.y0, g[i + 1]), x1: Math.max(b.x1, g[i]), y1: Math.max(b.y1, g[i + 1]) } : { x0: g[i], y0: g[i + 1], x1: g[i], y1: g[i + 1] }; }
+  b ??= { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const w = r4(b.x1 - b.x0), h = r4(b.y1 - b.y0);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="${r4(b.x0)} ${r4(b.y0)} ${w} ${h}">\n`
+    + (useG ? `<g id="yuzey"><path d="${joinOutline(guide!)}" fill-rule="evenodd" fill="none" stroke="#ff0000" stroke-width="0.1"/></g>\n` : '')
+    + (useI ? `<g id="tasarim">${items.map(it => `<path d="${itemD(it)}" fill="${it.fill ?? 'none'}"${it.even ? ' fill-rule="evenodd"' : ''}${it.stroke ? ` stroke="${it.stroke}" stroke-width="${r4(it.sw)}" stroke-linejoin="round" stroke-linecap="round"` : ''}/>`).join('')}</g>\n` : '')
+    + '</svg>\n';
 }
 export function mapItem(it: Item, f: (x: number, y: number) => V, swK = 1): Item {
   const t = it.text && (() => { const [x, y] = f(it.text!.x, it.text!.y); return { ...it.text!, x, y, size: it.text!.size * swK }; })();
