@@ -145,3 +145,4 @@ dialog.big{width:min(900px,94vw)}dialog.big .box{max-height:86vh;overflow:auto}
 .spin button:first-child{border-radius:0 5px 0 0;border-bottom:1px solid #d5dde5}.spin button:last-child{border-radius:0 0 5px 0}
 .spin button:hover{color:#1677ff;background:#e3efff}
 [data-theme=dark] .spin button{background:#22272e;border-color:#39414b;color:#9aa6b2}[data-theme=dark] .spin button:hover{background:#173156;color:#9cc2ff}
+.ib.upd{position:relative;color:#1677ff}.upd-dot{position:absolute;top:0;right:0;width:15px;height:15px;border-radius:50%;background:#1677ff;color:#fff;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;animation:updp 2s ease-in-out infinite}.upd-dot svg{width:10px;height:10px;stroke-width:3}@keyframes updp{50%{transform:scale(1.15)}}[data-theme=dark] .ib.upd{color:#6aa5ff}[data-theme=dark] .upd-dot{box-shadow:0 0 0 2px #1c2026}

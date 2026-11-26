@@ -40,6 +40,12 @@ export function App({ kernel }: { kernel: Kernel }) {
   const [decal, setDecal] = useState<Decal>({ kind: 'raise', depth: 1 });
   const [brush, setBrush] = useState(0), [paintColor, setPaintColor] = useState('#e5484d');
   const [overhang, setOverhang] = useState(false);
+  // açılışta ve 6 saatte bir yeni sürüm var mı bak
+  const [upd, setUpd] = useState<os.Release | null>(null);
+  useEffect(() => {
+    const check = () => os.latestRelease().then(r => setUpd(r && os.newer(r.version, pkg.version) ? r : null), () => { /* çevrimdışı */ });
+    const t0 = setTimeout(check, 1500), t = setInterval(check, 6 * 3600e3); return () => { clearTimeout(t0); clearInterval(t); };
+  }, []);
   const [theme, setThemeState] = useState<'light' | 'dark' | 'system'>(() => { try { return (localStorage.getItem('baseline-theme') as 'light' | 'dark') || 'system'; } catch { return 'system'; } });
   const [sysDark, setSysDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
   useEffect(() => { const m = matchMedia('(prefers-color-scheme: dark)'), f = () => setSysDark(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
@@ -320,7 +326,8 @@ export function App({ kernel }: { kernel: Kernel }) {
       <B t="Kaydet (Ctrl+S)" on={saveDoc}><Save /></B>
       <span className="file">{path ? path.split(/[\\/]/).pop() : 'Kaydedilmemiş belge'}{dirty ? ' •' : ''}</span>
       <B t="Yapay zekâ bağlantısı" on={() => setDialog('ai')}><Bot /></B>
-      <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>
+      {upd ? <button className="ib upd" title={`Yeni sürüm var: ${upd.version}`} aria-label={`Yeni sürüm var: ${upd.version}`} onClick={() => setDialog('update')}><RefreshCw /><span className="upd-dot"><Download /></span></button>
+        : <B t="Güncellemeler" on={() => setDialog('update')}><RefreshCw /></B>}
       <B t={dark ? 'Açık tema' : 'Koyu tema'} on={() => setTheme(dark ? 'light' : 'dark')}>{dark ? <Sun /> : <Moon />}</B>
       <button className="tb" title="STL, OBJ, 3MF ya da SVG ekle (Ctrl+I). Pencereye sürükleyip bırakabilirsin." onClick={importPick}><FileUp />İçe aktar</button>
       <button className="tb primary" disabled={!doc.nodes.length} onClick={() => setDialog('export')}><Download />Dışa aktar</button>
@@ -393,7 +400,7 @@ export function App({ kernel }: { kernel: Kernel }) {
     {dialog && <Modal wide={dialog === 'assist' || dialog === 'library'} close={() => setDialog(null)} title={{ export: 'Dışa aktar', ai: 'Yapay zekâ bağlantısı', update: 'Güncellemeler', assist: 'Baskı asistanı', library: 'Şablonlar ve tasarım havuzu' }[dialog]}>
       {dialog === 'export' && <ExportBox built={built} name={path?.split(/[\\/]/).pop()?.replace('.baseline', '') ?? 'model'} say={say} close={() => setDialog(null)} />}
       {dialog === 'ai' && <AiBox path={path} />}
-      {dialog === 'update' && <UpdateBox />}
+      {dialog === 'update' && <UpdateBox known={upd} />}
       {dialog === 'assist' && <Assistant built={built} overhang={overhang} setOverhang={setOverhang} />}
       {dialog === 'library' && <Library insert={insertDoc} importFile={(n, d) => { importFiles([{ name: n, data: d }]); setDialog(null); }} say={say} saveCurrent={saveTemplate} />}
     </Modal>}
@@ -445,9 +452,9 @@ function AiBox({ path }: { path: string | null }) {
     <p className="hint">{path ? `Bağlı belge: ${path}` : 'Canlı çalışmak için önce belgeyi kaydet.'}</p>
   </>;
 }
-function UpdateBox() {
-  const [s, setS] = useState<'busy' | 'none' | string | os.Release>('busy');
-  useEffect(() => { os.latestRelease().then(r => setS(r ?? 'none'), e => setS(`Kontrol edilemedi: ${(e as Error).message}`)); }, []);
+function UpdateBox({ known }: { known: os.Release | null }) {
+  const [s, setS] = useState<'busy' | 'none' | string | os.Release>(known ?? 'busy');
+  useEffect(() => { if (known) return; os.latestRelease().then(r => setS(r ?? 'none'), e => setS(`Kontrol edilemedi: ${(e as Error).message}`)); }, []);
   return <>
     <p>Kurulu sürüm: <b>{pkg.version}</b></p>
     {s === 'busy' ? <p>Kontrol ediliyor…</p> : s === 'none' ? <p>GitHub’da herkese açık bir yayın yok.</p> : typeof s === 'string' ? <p className="error">{s}</p>
