@@ -16,7 +16,7 @@ export interface TextMeta {
   /** Paragraf yazı: kutu genişliği (mm); x,y kutunun sol üst köşesi. */
   box?: { w: number };
   /** Yola oturtulmuş yazı: yolun noktaları, baştan uzaklık (mm), alta çevir. */
-  path?: { pts: V[]; offset: number; flip?: boolean };
+  path?: { pts: V[]; offset: number; flip?: boolean; side?: 'out' | 'in'; dist?: number; ref?: number };
 }
 export type ArrowKind = 'tri' | 'open' | 'dot' | 'square' | 'bar';
 /** Harf stili; dx / dy: şekil aracıyla elle kaydırılan harfin kayması (mm, yazının kendi ekseninde). */
@@ -56,7 +56,9 @@ export interface BlockFx { dx: number; dy: number; color: string; noHoles?: bool
 export interface InnerFx { dx: number; dy: number; size: number; color: string; opacity: number }
 /** Geçişli şeffaflık: a noktasında from, b noktasında to (0 opak … 1 tam saydam). */
 export interface TranspFx { a: V; b: V; from: number; to: number }
-export interface Fx { contour?: ContourFx; env?: EnvFx; distort?: DistortFx; block?: BlockFx; inner?: InnerFx; transp?: TranspFx }
+/** Köşeler (Corel): kaynak yollar, köşe ölçüleri (sol üst, sağ üst, sağ alt, sol alt), biçim. 4 köşeli olmayan şekillerde ilk ölçü tüm köşelere. */
+export interface CornerFx { src: Sub[]; r: [number, number, number, number]; kind: 'round' | 'scallop' | 'chamfer'; lock: boolean }
+export interface Fx { corners?: CornerFx; contour?: ContourFx; env?: EnvFx; distort?: DistortFx; block?: BlockFx; inner?: InnerFx; transp?: TranspFx }
 /** Gradientin t (0–1) noktasındaki rengi (ekran rengi). */
 export function gradAt(g: Grad, t: number): string {
   const st = [...g.stops].sort((a, b) => a.o - b.o); if (!st.length) return '#000000';
@@ -188,6 +190,7 @@ function mapFx(fx: Fx | undefined, f: (x: number, y: number) => V): Fx | undefin
   const out = { ...fx }, g = (p: V) => f(p[0], p[1]);
   if (fx.env) out.env = { ...fx.env, src: mapSubs(fx.env.src, f), frame: fx.env.frame.map(g) as [V, V, V], e: fx.env.e.map(c => c.map(g)) as EnvFx['e'] };
   if (fx.distort) out.distort = { ...fx.distort, src: mapSubs(fx.distort.src, f), c: g(fx.distort.c) };
+  if (fx.corners) out.corners = { ...fx.corners, src: mapSubs(fx.corners.src, f) };
   if (fx.transp) out.transp = { ...fx.transp, a: g(fx.transp.a), b: g(fx.transp.b) };
   return out;
 }
@@ -212,7 +215,7 @@ export function insertAt(s: Sub, i: number, t: number) {
 export function nearestT(a: Pt, b: Pt, x: number, y: number) { const p = segPts(a, b); let best = 0, bd = Infinity; for (let q = 0; q <= 64; q++) { const [u, v] = bez(p, q / 64), d = (u - x) ** 2 + (v - y) ** 2; if (d < bd) { bd = d; best = q / 64; } } return best; }
 
 /** Düğüm i'yi pah ya da yuvarlama ile iki düğüme çevirir. */
-export function cornerAt(s: Sub, i: number, size: number, style: 'chamfer' | 'round'): boolean {
+export function cornerAt(s: Sub, i: number, size: number, style: 'chamfer' | 'round' | 'scallop'): boolean {
   const n = s.pts.length; if (n < 3 || (!s.closed && (i === 0 || i === n - 1))) return false;
   const pi = (i + n - 1) % n, ni = (i + 1) % n, P = s.pts[pi], C = s.pts[i], N = s.pts[ni];
   const prev = segPts(P, C), next = segPts(C, N), dist = (q: V) => Math.hypot(q[0] - C.x, q[1] - C.y);
@@ -227,6 +230,11 @@ export function cornerAt(s: Sub, i: number, size: number, style: 'chamfer' | 'ro
     const ua: V = [C.x - A.x, C.y - A.y], ub: V = [C.x - B.x, C.y - B.y], la = Math.hypot(...ua), lb = Math.hypot(...ub);
     const turn = Math.PI - Math.acos(Math.max(-1, Math.min(1, (ua[0] * ub[0] + ua[1] * ub[1]) / (la * lb || 1))));
     if (turn > 0.01) { const k = 4 / 3 * Math.tan(turn / 4) / Math.tan(turn / 2); A.ox = A.x + ua[0] * k; A.oy = A.y + ua[1] * k; B.ix = B.x + ub[0] * k; B.iy = B.y + ub[1] * k; }
+  }
+  if (style === 'scallop') { // ters yuvarlama: köşe merkezli içe kavis
+    const ra = Math.hypot(A.x - C.x, A.y - C.y), th = Math.acos(Math.max(-1, Math.min(1, ((A.x - C.x) * (B.x - C.x) + (A.y - C.y) * (B.y - C.y)) / (ra * Math.hypot(B.x - C.x, B.y - C.y) || 1)))), k = 4 / 3 * Math.tan(th / 4) * ra;
+    const perp = (p: Pt, q: Pt): V => { const dx = p.x - C.x, dy = p.y - C.y, l = Math.hypot(dx, dy) || 1; let t: V = [-dy / l, dx / l]; if (t[0] * (q.x - p.x) + t[1] * (q.y - p.y) < 0) t = [-t[0], -t[1]]; return t; };
+    const ta = perp(A, B), tb = perp(B, A); A.ox = A.x + ta[0] * k; A.oy = A.y + ta[1] * k; B.ix = B.x + tb[0] * k; B.iy = B.y + tb[1] * k;
   }
   s.pts.splice(i, 1, A, B);
   return true;

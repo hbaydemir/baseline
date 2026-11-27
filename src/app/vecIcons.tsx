@@ -49,3 +49,23 @@ export const IcoBrushPreset = () => <Ico><path d="M3 17c4-1 6-8 10-9s5 3 8 1c-2 
 export const IcoCalli = () => <Ico><path d="M4 18c3-3 4-9 8-11 3-1 4 2 2 4-2 3-6 4-6 7 0 2 4 2 8-1" strokeWidth="1.3" /><path d="M15 4l5 5" strokeWidth="3" /></Ico>;
 export const IcoPressure = () => <Ico><path d="M3 16c2 0 3-3 5-3s3 4 6 4 3-6 7-6" strokeWidth="1.2" /><path d="M3 16c2 0 3-3 5-3s3 4 6 4 3-6 7-6" strokeWidth="4" opacity={0.25} /><path d="M17 3l4 4-6 6-4-4z" /></Ico>;
 export const IcoSpray = () => <Ico><circle cx="5" cy="17" r="2" fill="currentColor" /><path d="M10 11l1 2 2 .3-1.5 1.4.4 2.1-1.9-1-1.9 1 .4-2.1L7 13.3 9 13z" fill="currentColor" stroke="none" /><circle cx="16" cy="9" r="1.6" fill="currentColor" /><path d="M19 3l.7 1.4 1.5.2-1.1 1 .3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1 1.5-.2z" fill="currentColor" stroke="none" /></Ico>;
+
+// köşeler
+export const IcoCornerRound = () => <Ico><path d="M5 20V13a8 8 0 0 1 8-8h7" /></Ico>;
+export const IcoCornerScallop = () => <Ico><path d="M5 20v-7a8 8 0 0 0 8-8h7" /></Ico>;
+export const IcoCornerChamfer = () => <Ico><path d="M5 20v-8l7-7h8" /></Ico>;
+export const IcoCornerTL = () => <Ico><path d="M6 19V11a5 5 0 0 1 5-5h8" strokeWidth="2.2" /></Ico>;
+
+// yola oturt
+export const IcoPathOut = () => <Ico><path d="M5 19a7 7 0 0 1 14 0" /><path d="M6.5 11.5l1-1.6M10 9.2V7.4M14 9.2V7.4M17.5 11.5l-1-1.6" strokeWidth="2.4" /></Ico>;
+export const IcoPathIn = () => <Ico><path d="M3 14a9 9 0 0 1 18 0" /><path d="M7.5 13.5l1 1.2M11 12v1.6M13 12v1.6M16.5 13.5l-1 1.2" strokeWidth="2.4" /></Ico>;
+
+// panel alanları
+export const IcoStrokeW = () => <Ico><path d="M4 6h16" strokeWidth="1" /><path d="M4 11h16" strokeWidth="2.2" /><path d="M4 17h16" strokeWidth="3.6" /></Ico>;
+export const IcoCapButt = () => <Ico><path d="M4 12h12" strokeWidth="6" strokeLinecap="butt" opacity={0.35} /><path d="M16 6v12" strokeWidth="1.2" strokeDasharray="2 1.5" /><path d="M4 12h12" strokeWidth="1.2" /></Ico>;
+export const IcoCapRound = () => <Ico><path d="M4 12h12" strokeWidth="6" strokeLinecap="round" opacity={0.35} /><path d="M16 6v12" strokeWidth="1.2" strokeDasharray="2 1.5" /><path d="M4 12h12" strokeWidth="1.2" /></Ico>;
+export const IcoCapSquare = () => <Ico><path d="M4 12h12" strokeWidth="6" strokeLinecap="square" opacity={0.35} /><path d="M16 6v12" strokeWidth="1.2" strokeDasharray="2 1.5" /><path d="M4 12h12" strokeWidth="1.2" /></Ico>;
+export const IcoArrowSize = () => <Ico><path d="M3 12h12" /><path d="M13 7l7 5-7 5z" fill="currentColor" /></Ico>;
+export const IcoSkew = () => <Ico><path d="M8 5h12l-4 14H4z" /></Ico>;
+export const IcoLetterSpace = () => <Ico><path d="M5 15l3-8 3 8M6 12.5h4M14 7v8h3.5a2 2 0 0 0 0-4H14M3 19h18M3 19l2-1.5M3 19l2 1.5M21 19l-2-1.5M21 19l-2 1.5" strokeWidth="1.5" /></Ico>;
+export const IcoLineHeight = () => <Ico><path d="M10 6h11M10 12h11M10 18h11M4 5v14M4 5l-1.5 2M4 5l1.5 2M4 19l-1.5-2M4 19l1.5-2" strokeWidth="1.6" /></Ico>;

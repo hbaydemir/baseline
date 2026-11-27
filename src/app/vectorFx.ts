@@ -84,9 +84,25 @@ export function distortSubs(src: V.Sub[], d: V.DistortFx): V.Sub[] {
   });
 }
 
+// ---------- köşeler ----------
+const cloneSub = (s: V.Sub): V.Sub => ({ closed: s.closed, pts: s.pts.map(p => ({ ...p })) });
+/** Şeklin köşe düğümleri; tam 4 köşe varsa sol üst, sağ üst, sağ alt, sol alt sırasıyla eşlenir. */
+export function cornerSlots(s: V.Sub): { i: number; slot: number }[] {
+  const idx = s.pts.map((_, i) => i).filter(i => V.isCorner(s, i)); if (idx.length !== 4) return idx.map(i => ({ i, slot: 0 }));
+  const cx = idx.reduce((q, i) => q + s.pts[i].x, 0) / 4, cy = idx.reduce((q, i) => q + s.pts[i].y, 0) / 4;
+  const slot = (i: number) => { const p = s.pts[i]; return p.y < cy ? (p.x < cx ? 0 : 1) : (p.x < cx ? 3 : 2); }, out = idx.map(i => ({ i, slot: slot(i) }));
+  return new Set(out.map(o => o.slot)).size === 4 ? out : idx.map(i => ({ i, slot: 0 }));
+}
+export function cornerSubs(src: V.Sub[], c: V.CornerFx): V.Sub[] {
+  return src.map(s0 => { const s = cloneSub(s0), slots = cornerSlots(s0).sort((a, b) => b.i - a.i); for (const { i, slot } of slots) { const r = c.lock ? c.r[0] : c.r[slot]; if (r > 0.001) V.cornerAt(s, i, r, c.kind); } return s; });
+}
+/** Seçili şeklin 4 köşeli olup olmadığı (panelde 4 ayrı ölçü gösterilir). */
+export const fourCorners = (subs: V.Sub[]) => subs.length === 1 && cornerSlots(subs[0]).length === 4 && cornerSlots(subs[0])[0].slot !== cornerSlots(subs[0])[1].slot;
+
 // ---------- uygulama ----------
 /** Zarf ya da bozmayı yeniden hesaplar (kaynak yollardan). */
 export function regeo(it: V.Item): V.Item {
+  if (it.fx?.corners) return { ...it, subs: cornerSubs(it.fx.corners.src, it.fx.corners) };
   if (it.fx?.env) { const f = envMap(it.fx.env), step = Math.hypot(it.fx.env.frame[1][0] - it.fx.env.frame[0][0], it.fx.env.frame[1][1] - it.fx.env.frame[0][1]) / 48 || 1; return { ...it, subs: it.fx.env.src.map(s => V.warpSub(s, f, step)) }; }
   if (it.fx?.distort) return { ...it, subs: distortSubs(it.fx.distort.src, it.fx.distort) };
   return it;
@@ -95,7 +111,7 @@ export function regeo(it: V.Item): V.Item {
 export function dropFx(it: V.Item, k: keyof V.Fx): V.Item {
   if (!it.fx?.[k]) return it;
   const fx = { ...it.fx }; delete fx[k];
-  const subs = k === 'env' ? it.fx.env!.src : k === 'distort' ? it.fx.distort!.src : it.subs;
+  const subs = k === 'env' ? it.fx.env!.src : k === 'distort' ? it.fx.distort!.src : k === 'corners' ? it.fx.corners!.src : it.subs;
   return { ...it, subs, fx: Object.keys(fx).length ? fx : undefined };
 }
 /** Efekti kalıcı yap: türetilmiş parçalar ayrı nesne olur, zarf / bozma kaynağı bırakılır. */

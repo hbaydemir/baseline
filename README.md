@@ -82,7 +82,9 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
   - **Bozma:** itme / çekme, fermuar, girdap; merkez taşınabilir.
   - **Şeffaflık:** genel ya da sürükleyerek geçişli. **Geçiş:** bir nesneden öbürüne sürükle.
   - Efektler canlıdır: kaldırınca şekil eski hâline döner. "Efektleri kalıcı yap" ile ayrı nesnelere dönüşür. Dışa aktarmada ve 3B'ye gönderirken vektör efektler (blok gölge, kontür) şekil olarak yazılır.
-- **Diğer:** PowerClip, yazıyı yola oturtma, köşelere pah ve yuvarlatma, desen dolgu, resmi vektöre çevirme.
+- **Köşeler (Corel gibi):** Seçili şeklin köşeleri yuvarla, içe yuvarla ya da pah; dört köşe kilitliyken birlikte, kilit açıkken ayrı ayrı. Dönüştür sekmesinin en üstünde; kaldırınca şekil eski hâline döner.
+- **Yola oturt:** Yazı ve şekli seç, "Dışına oturt" ya da "İçine oturt". Yazı şekle bağlı kalır: fareyle sürükleyince yol boyunca kayar ve yoldan uzaklaşır / yaklaşır; konum ve uzaklık panelden mm ile de girilir. Şekli taşıyınca ya da büyütünce yazı birlikte gelir. "Eğriye çevir" ile yoldaki hâli kalıcı olur, şekil silinebilir.
+- **Diğer:** PowerClip (seçim kutusu yalnız kabı gösterir), desen dolgu, resmi vektöre çevirme. Şekil çizerken şeklin kendisi anlık görünür.
 - **Yazı:**
   - Ekranda doğrudan yazarsın.
   - Harf harf renk, yazı tipi ve boy verirsin.

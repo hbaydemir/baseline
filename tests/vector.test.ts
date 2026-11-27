@@ -67,3 +67,17 @@ test('Fırça: hazır profil, kaligrafi ve basınç kapalı şekil verir; püsk�
   const sp = Br.sprayItems(pts, { ...Br.BRUSH0, mode: 'spray', spray: { ...Br.BRUSH0.spray, gap: 10 } }, [V.rectSub(0, 0, 1, 1)], { fill: '#f00', stroke: null, sw: 0, even: false });
   expect(sp.length).toBeGreaterThan(4); expect(new Set(sp.map(q => q.group)).size).toBe(1);
 });
+
+import * as Fx2 from '../src/app/vectorFx';
+test('Köşeler: dört köşe ayrı ölçü, kaldırınca dikdörtgen geri gelir', () => {
+  const r = sq(0, 0, 20), c: V.CornerFx = { src: r.subs, r: [5, 0, 0, 0], kind: 'round', lock: false };
+  const one = Fx2.regeo({ ...r, fx: { corners: c } }); expect(one.subs[0].pts.length).toBe(5); // yalnız sol üst köşe ikiye bölünür
+  const all = Fx2.regeo({ ...r, fx: { corners: { ...c, lock: true, kind: 'chamfer' } } }); expect(all.subs[0].pts.length).toBe(8);
+  expect(area(all)).toBeCloseTo(400 - 4 * 12.5, 0);
+  expect(Fx2.dropFx(all, 'corners').subs).toEqual(r.subs);
+});
+test('Yola oturt: kapalı yolda konum başa sarar, uzaklık harfleri yoldan ayırır', () => {
+  const pts: V.V[] = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]];
+  const a = O.projectPath(pts, 10.5, 5); expect(a.s).toBeCloseTo(15, 5);
+  expect(O.along(pts, 45).p[0]).toBeCloseTo(O.along(pts, 5).p[0], 5);
+});

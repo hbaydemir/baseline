@@ -1,9 +1,9 @@
 // Efekt araçları (Corel efekt araç menüsü gibi): araç çubuğu menüsü, ekrandaki tutamaçlar ve sağ paneldeki ayarlar.
 import type { PointerEvent as PE, ReactNode } from 'react';
-import { Droplet, Frame, Grid3x3, ScanLine, Spline, SquareRoundCorner, X } from 'lucide-react';
+import { Droplet, Frame, Grid3x3, Link2, Link2Off, ScanLine, Spline, SquareRoundCorner, Trash2, X } from 'lucide-react';
 import * as V from './vector';
 import * as Fx from './vectorFx';
-import { IcoBlend, IcoBlock, IcoContourIn, IcoContourOut, IcoDistort, IcoEnvelope, IcoInner, IcoJoinBevel, IcoJoinMiter, IcoJoinRound, IcoOffset, IcoPush, IcoShadow, IcoShadowFlat, IcoShadowPersp, IcoSteps, IcoTransp, IcoTwist, IcoZipper, IcoEnvLine, IcoEnvArc, IcoEnvDouble, IcoEnvFree } from './vecIcons';
+import { IcoPathIn, IcoPathOut, IcoCornerChamfer, IcoCornerRound, IcoCornerScallop, IcoCornerTL, IcoBlend, IcoBlock, IcoContourIn, IcoContourOut, IcoDistort, IcoEnvelope, IcoInner, IcoJoinBevel, IcoJoinMiter, IcoJoinRound, IcoOffset, IcoPush, IcoShadow, IcoShadowFlat, IcoShadowPersp, IcoSteps, IcoTransp, IcoTwist, IcoZipper, IcoEnvLine, IcoEnvArc, IcoEnvDouble, IcoEnvFree } from './vecIcons';
 
 type P = V.V;
 export type FxKey = 'shadow' | 'inner' | 'block' | 'contour' | 'env' | 'distort' | 'transp' | 'blend' | 'corners' | 'pattern' | 'clip' | 'path' | 'trace';
@@ -17,7 +17,7 @@ export const FX_TOOLS: { k: FxKey; label: string; tip: string; I: () => ReactNod
   { k: 'distort', label: 'Bozma', tip: 'İtme / çekme, fermuar, girdap: nesne üstünde sürükle', I: IcoDistort, live: true },
   { k: 'transp', label: 'Şeffaflık', tip: 'Nesne üstünde sürükle: geçişli şeffaflık', I: IcoTransp, live: true, free: true },
   { k: 'blend', label: 'Geçiş', tip: 'Bir nesneden öbürüne sürükle: aradaki geçiş şekilleri', I: IcoBlend, live: true },
-  { k: 'corners', label: 'Köşeler', tip: 'Köşelere pah ya da yuvarlatma', I: () => <SquareRoundCorner /> },
+  { k: 'corners', label: 'Köşeler', tip: 'Köşeleri yuvarla, içe yuvarla ya da pah kır (dört köşe ayrı ya da birlikte)', I: () => <SquareRoundCorner />, live: true },
   { k: 'pattern', label: 'Desen', tip: 'Seçiliden desen dolgu oluştur', I: () => <Grid3x3 /> },
   { k: 'clip', label: 'PowerClip', tip: 'Nesneleri bir kabın içine yerleştir', I: () => <Frame /> },
   { k: 'path', label: 'Yola oturt', tip: 'Yazıyı bir yolun üstüne oturt', I: () => <Spline /> },
@@ -29,7 +29,9 @@ const mid = (it: V.Item): P => { const b = box(it); return [(b.x0 + b.x1) / 2, (
 const r2 = (x: number) => Math.round(x * 100) / 100;
 export const setFx = (it: V.Item, patch: Partial<V.Fx>): V.Item => { const fx: V.Fx = { ...it.fx, ...patch }; for (const k of Object.keys(fx) as (keyof V.Fx)[]) if (fx[k] === undefined) delete fx[k]; return Fx.regeo({ ...it, fx: Object.keys(fx).length ? fx : undefined }); };
 /** Geometri efekti başlarken: yazı eğriye çevrilir, öbür geometri efekti kalıcı olur. */
-const geoBase = (it: V.Item, keep: 'env' | 'distort'): V.Item => { const fx = { ...it.fx }; if (keep === 'env') delete fx.distort; else delete fx.env; return { ...it, text: undefined, fx }; };
+const geoBase = (it: V.Item, keep: 'env' | 'distort' | 'corners'): V.Item => { const fx = { ...it.fx }; for (const k of ['env', 'distort', 'corners'] as const) if (k !== keep) delete fx[k]; return { ...it, text: undefined, fx }; };
+/** Köşeler (Corel dikdörtgen köşeleri): ölçü ve biçim; ilk kez uygulanırken kaynak yollar saklanır. */
+export const setCorners = (it: V.Item, p: Partial<Omit<V.CornerFx, 'src'>>): V.Item => { const g = geoBase(it, 'corners'), c0: V.CornerFx = it.fx?.corners ?? { src: g.subs, r: [0, 0, 0, 0], kind: 'round', lock: true }, c = { ...c0, ...p }; return c.r.every(v => v <= 0.001) && !p.kind ? Fx.dropFx(g, 'corners') : setFx(g, { corners: c }); };
 
 export interface FxDefaults { color: string; stroke: string; contour: { dist: number; steps: number; dir: 'out' | 'in'; join: 'Miter' | 'Round' | 'Square'; filled: boolean }; distort: V.DistortFx['kind']; env: Fx.EnvPreset; envAmt: number }
 /** Araçla nesne üstünde sürükleme: efekti oluşturur ve sürüklemeyle ayarlar. */
@@ -50,6 +52,7 @@ export function fxCreate(k: FxKey, it: V.Item, p0: P, d: FxDefaults): ((x: numbe
       return setFx(g, { distort: { ...q0, amt: Math.round(q0.amt + ang * 180 / Math.PI) } });
     };
   }
+  if (k === 'corners') return null;
   if (k === 'transp') return (x, y) => Math.hypot(x - p0[0], y - p0[1]) < 0.5 ? it : setFx(it, { transp: { a: p0, b: [r2(x), r2(y)], from: it.fx?.transp?.from ?? 0, to: it.fx?.transp?.to ?? 1 } });
   return null;
 }
@@ -104,14 +107,19 @@ export function EnvPreview({ kind }: { kind: Fx.EnvPreset }) {
 }
 export const ENV_PRESETS: [Fx.EnvPreset, string][] = [['arc', 'Kavis'], ['arcTop', 'Üstten kavis'], ['arcBottom', 'Alttan kavis'], ['wave', 'Dalga'], ['flag', 'Bayrak'], ['bulge', 'Şişir'], ['pinch', 'Daralt'], ['persp', 'Perspektif']];
 
-interface PanelProps { k: FxKey; it: V.Item; set(f: (x: V.Item) => V.Item, record?: boolean): void; commit(): void; color(label: string, value: string, onChange: (c: string) => void, id: string): ReactNode; defaults: FxDefaults; setDefaults(d: Partial<FxDefaults>): void; free: boolean }
+interface PanelProps { k: FxKey; it: V.Item; onRemove(): void; set(f: (x: V.Item) => V.Item, record?: boolean): void; commit(): void; color(label: string, value: string, onChange: (c: string) => void, id: string): ReactNode; defaults: FxDefaults; setDefaults(d: Partial<FxDefaults>): void; free: boolean }
 const Num = ({ I, v, on, unit, step = 0.1, min, max, title }: { I: () => ReactNode; v: number; on(x: number): void; unit: string; step?: number; min?: number; max?: number; title: string }) => <label className="ifield" title={title}><I /><input type="number" step={step} min={min} max={max} value={v} onChange={e => on(Math.max(min ?? -1e9, Math.min(max ?? 1e9, +e.target.value || 0)))} /><i>{unit}</i></label>;
 const Slide = ({ label, v, on, done, min = 0, max = 100, unit = '%' }: { label: string; v: number; on(x: number): void; done(): void; min?: number; max?: number; unit?: string }) => <label className="islide"><span>{label}<em>{Math.round(v)}{unit}</em></span><input type="range" min={min} max={max} value={v} onChange={e => on(+e.target.value)} onPointerUp={done} /></label>;
 const Seg = <T extends string>({ v, opts, on, label }: { v: T; opts: [T, string, () => ReactNode][]; on(x: T): void; label: string }) => <div className="icon-seg" role="radiogroup" aria-label={label}>{opts.map(([q, l, I]) => <button key={q} role="radio" aria-checked={v === q} className={v === q ? 'on' : ''} title={l} onClick={() => on(q)}><I /><span>{l}</span></button>)}</div>;
 const IcoX = () => <span className="ax">X</span>, IcoY = () => <span className="ax">Y</span>, IcoBlur = () => <Droplet />;
 
 /** Sağ panel: seçili efekt aracının ayarları. */
-export function FxPanel({ k, it, set, commit, color, defaults, setDefaults, free }: PanelProps) {
+export function FxPanel(p: PanelProps) {
+  const { k, it, onRemove } = p, on = k === 'shadow' ? !!it.shadow : !!it.fx?.[k as keyof V.Fx];
+  return <>{FxPanelBody(p)}{on && <button className="tb wide danger" onClick={onRemove}><Trash2 />Efekti kaldır</button>}</>;
+}
+function FxPanelBody({ k, it, set, commit, color, defaults, setDefaults, free }: PanelProps) {
+  if (k === 'corners') return <CornerPanel it={it} set={set} />;
   const hint = (t: string) => <small className="hint">{t}</small>;
   if ((k === 'shadow' || k === 'inner' || k === 'transp') && !free) return hint('Bu efekt baskı (serbest çizim) içindir; yüzeye çizimde 3B’ye geçmez.');
   if (k === 'shadow') {
@@ -180,7 +188,37 @@ export function FxPanel({ k, it, set, commit, color, defaults, setDefaults, free
 
 /** Nesnedeki canlı efektlerin listesi (simge, ad, kaldır). */
 export function FxList({ it, pick, drop }: { it: V.Item; pick(k: FxKey): void; drop(k: FxKey): void }) {
-  const on: FxKey[] = [...(it.shadow ? ['shadow' as const] : []), ...(['inner', 'block', 'contour', 'env', 'distort', 'transp'] as const).filter(k => it.fx?.[k])];
+  const on: FxKey[] = [...(it.shadow ? ['shadow' as const] : []), ...(['corners', 'inner', 'block', 'contour', 'env', 'distort', 'transp'] as const).filter(k => it.fx?.[k])];
   if (!on.length) return null;
   return <div className="fx-list">{on.map(k => { const t = FX_TOOLS.find(q => q.k === k)!; return <div key={k} className="fx-chip"><button title={`${t.label}: ayarla`} onClick={() => pick(k)}><t.I /><span>{t.label}</span></button><button className="x" title={`${t.label} efektini kaldır`} aria-label={`${t.label} efektini kaldır`} onClick={() => drop(k)}><X /></button></div>; })}</div>;
+}
+
+/** Köşeler (Corel dikdörtgen köşeleri gibi): biçim, dört köşe ölçüsü, kilit. */
+export function CornerPanel({ it, set }: { it: V.Item; set(f: (x: V.Item) => V.Item, record?: boolean): void }) {
+  const c = it.fx?.corners, src = c?.src ?? it.subs, four = Fx.fourCorners(src), r = c?.r ?? [0, 0, 0, 0], lock = c?.lock ?? true, kind = c?.kind ?? 'round';
+  if (it.img || it.text || !src.some(s => s.closed)) return <small className="hint">Köşeler kapalı şekillerde ayarlanır (yazıyı önce eğriye çevir).</small>;
+  const put = (slot: number, v: number) => set(x => setCorners(x, { r: (lock || !four ? [v, v, v, v] : r.map((q, i) => i === slot ? v : q)) as V.CornerFx['r'] }));
+  const cell = (slot: number) => <label className="ifield" title={['Sol üst', 'Sağ üst', 'Sağ alt', 'Sol alt'][slot] + ' köşe'}><span className="cico" style={{ transform: `rotate(${slot * 90}deg)` }}><IcoCornerTL /></span><input type="number" min={0} step={0.5} value={r[lock ? 0 : slot]} onChange={e => put(slot, Math.max(0, +e.target.value || 0))} /><i>mm</i></label>;
+  return <div className="corner-panel">
+    <Seg label="Köşe biçimi" v={kind} on={q => set(x => setCorners(x, { kind: q }))} opts={[['round', 'Yuvarla', IcoCornerRound], ['scallop', 'İçe yuvarla', IcoCornerScallop], ['chamfer', 'Pah', IcoCornerChamfer]]} />
+    {four ? <div className="corner-grid">{cell(0)}{cell(1)}<button className={'ib lock' + (lock ? ' on' : '')} title={lock ? 'Dört köşe birlikte (kilidi aç: ayrı ayrı)' : 'Köşeler ayrı ayrı (kilitle: hepsi aynı)'} aria-pressed={lock} onClick={() => set(x => setCorners(x, { lock: !lock, r: (!lock ? [r[0], r[0], r[0], r[0]] : r) as V.CornerFx['r'] }))}>{lock ? <Link2 /> : <Link2Off />}</button>{cell(3)}{cell(2)}</div>
+      : <div className="corner-one">{cell(0)}</div>}
+    <small className="hint">{four ? 'Kilitliyken dört köşe aynı ölçüde. Kaldırınca şekil eski hâline döner.' : 'Şeklin bütün köşelerine aynı ölçü uygulanır.'}</small>
+  </div>;
+}
+
+/** Yola oturt (Corel Fit Text to Path, daha pratik): dışına / içine, yol boyunca konum, yoldan uzaklık. Yazı nesneye bağlı kalır. */
+export function PathPanel({ it, canFit, fit, set, commit, off }: { it?: V.Item; canFit: boolean; fit(side: 'out' | 'in'): void; set(p: Partial<NonNullable<V.TextMeta['path']>>, record?: boolean): void; commit(): void; off(curves: boolean): void }) {
+  const tp = it?.text?.path, L = tp ? tp.pts.reduce((q, p, i) => q + (i ? Math.hypot(p[0] - tp.pts[i - 1][0], p[1] - tp.pts[i - 1][1]) : 0), 0) : 0;
+  return <>
+    <div className="shape-grid two"><button disabled={!canFit} title="Yazı şeklin dışına, harfler dışa bakarak oturur" className={tp?.side === 'out' ? 'on' : ''} onClick={() => fit('out')}><IcoPathOut /><span>Dışına oturt</span></button><button disabled={!canFit} title="Yazı şeklin içine, harfler içe bakarak oturur" className={tp?.side === 'in' ? 'on' : ''} onClick={() => fit('in')}><IcoPathIn /><span>İçine oturt</span></button></div>
+    {!tp && <small className="hint">Bir yazı ve bir şekil seç, sonra dışına ya da içine oturt.</small>}
+    {tp && <>
+      <label className="islide"><span>Yol boyunca konum<em>{Math.round(tp.offset * 10) / 10} mm</em></span><input type="range" min={-L} max={L} step={0.5} value={tp.offset} onChange={e => set({ offset: +e.target.value }, false)} onPointerUp={commit} /></label>
+      <label className="ifield" title="Yol boyunca konum (mm)"><IcoPathOut /><span className="lbl">Konum</span><input type="number" step={0.5} value={Math.round(tp.offset * 100) / 100} onChange={e => set({ offset: +e.target.value || 0 })} /><i>mm</i></label>
+      <label className="ifield" title="Yazı ile şekil arasındaki boşluk (eksi: yola doğru)"><span className="ax">↕</span><span className="lbl">Yoldan uzaklık</span><input type="number" step={0.2} value={Math.round((tp.dist ?? 0) * 100) / 100} onChange={e => set({ dist: +e.target.value || 0 })} /><i>mm</i></label>
+      <small className="hint">Yazıyı fareyle sürükle: yol boyunca kayar, yoldan uzaklaşır ya da yaklaşır. Şekli taşıyınca ya da büyütünce yazı birlikte gelir.</small>
+      <div className="grid2"><button className="tb" title="Yazı düz hâline döner" onClick={() => off(false)}>Yoldan çıkar</button><button className="tb" title="Yoldaki hâliyle eğriye çevrilir; şekli silebilirsin" onClick={() => off(true)}>Eğriye çevir</button></div>
+    </>}
+  </>;
 }

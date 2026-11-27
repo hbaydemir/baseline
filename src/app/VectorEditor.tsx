@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type PointerEvent as PE, type ReactElement, type ReactNode } from 'react';
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Layers3, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignHorizontalDistributeEnd, AlignHorizontalDistributeStart, AlignHorizontalSpaceAround, AlignVerticalDistributeEnd, AlignVerticalDistributeStart, AlignVerticalSpaceAround, File, MousePointerClick, SquareDashed, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter,
+  ALargeSmall, ArrowLeftRight, Link2, Link2Off, MoveHorizontal, MoveVertical, Scaling, TextCursorInput,
   ArrowDownToLine, ArrowUpToLine, Box, Brush, ChevronDown, ChevronUp, Copy, Crosshair, Eraser, Eye, EyeOff, FileDown, FileUp, FlipHorizontal2, FlipVertical2, Group, Hand, ImageUp, Lock, LockOpen,
   Magnet, Maximize, Printer, PrinterX, Palette, PenLine, Move, Sparkles, Frame, Send, MousePointer2, PenTool, Pencil, Pipette, Plus, Redo2, RotateCcw, RotateCw, Ruler, Scissors, Shapes, Spline, Trash2, Type, Undo2, Ungroup, X, ZoomIn,
 } from 'lucide-react';
@@ -11,8 +12,8 @@ import * as V from './vector';
 import * as Fx from './vectorFx';
 import * as Br from './vectorBrush';
 import { BrushPanel } from './BrushPanel';
-import { FX_TOOLS, FxHandles, FxList, FxPanel, fxCreate, type FxDefaults, type FxKey } from './VectorFxUI';
-import { IcoSteps, IcoBackMinusFront, IcoBoundary, IcoCombine, IcoFrontMinusBack, IcoIntersect, IcoSimplify, IcoTrim, IcoWeld } from './vecIcons';
+import { CornerPanel, PathPanel, FX_TOOLS, FxHandles, FxList, FxPanel, fxCreate, type FxDefaults, type FxKey } from './VectorFxUI';
+import { IcoArrowSize, IcoCapButt, IcoCapRound, IcoCapSquare, IcoJoinBevel, IcoJoinMiter, IcoJoinRound, IcoLetterSpace, IcoLineHeight, IcoSkew, IcoStrokeW, IcoSteps, IcoBackMinusFront, IcoBoundary, IcoCombine, IcoFrontMinusBack, IcoIntersect, IcoSimplify, IcoTrim, IcoWeld } from './vecIcons';
 import * as O from './vectorOps';
 import * as IO from './vectorIO';
 import * as C from './color';
@@ -31,6 +32,8 @@ const clone = (a: V.Item[]) => structuredClone(a);
 /** Noktaları elle değişen yazı artık yol olur. */
 const unText = (b: V.Item[], id: number) => { const it = b.find(x => x.id === id)!; it.text = undefined; return it; };
 const PRESETS: [string, number, number][] = [['A3', 297, 420], ['A4', 210, 297], ['A5', 148, 210], ['A6', 105, 148], ['Kartvizit', 85, 55], ['Kare 100', 100, 100]];
+/** Ok ucu önizlemesi (panelde). */
+const ArrowPrev = ({ k, flip }: { k: string; flip?: boolean }) => <svg viewBox="0 0 24 12" width="24" height="12" style={flip ? { transform: 'scaleX(-1)' } : undefined} fill="currentColor" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="6" x2={k ? 17 : 22} y2="6" />{k === 'tri' && <path d="M16 2l6 4-6 4z" />}{k === 'open' && <path d="M16 2l6 4-6 4" fill="none" />}{k === 'dot' && <circle cx="19" cy="6" r="3" />}{k === 'square' && <rect x="16" y="3" width="6" height="6" />}{k === 'bar' && <line x1="20" y1="1.5" x2="20" y2="10.5" />}</svg>;
 const DASHES: [string, number[]][] = [['Düz', []], ['Kesikli', [2, 1]], ['Uzun kesik', [4, 1.5]], ['Noktalı', [0.3, 0.8]], ['Kesik-nokta', [3, 1, 0.3, 1]]];
 const SHAPE_KEYS: Record<string, string> = { F6: 'rect', F7: 'ellipse', y: 'polygon' };
 const ARROWS: [string, string][] = [['', 'Yok'], ['tri', 'Dolu ok ▶'], ['open', 'Açık ok ›'], ['dot', 'Nokta ●'], ['square', 'Kare ■'], ['bar', 'Çizgi |']];
@@ -101,6 +104,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const [segs, setSegs] = useState<Sel[]>([]);
   const [tool, setToolRaw] = useState<Tool>('select');
   const [shapeId, setShapeId] = useState('rect');
+  /** Seçili şekli iki köşe arasına yerleştirir (çizerken önizleme ve bırakınca). */
+  const shapeIn = (a: P, b: P): V.Sub[] => { const X0 = Math.min(a[0], b[0]), Y0 = Math.min(a[1], b[1]), X1 = Math.max(a[0], b[0]), Y1 = Math.max(a[1], b[1]), def = O.SHAPES.find(q => q.id === shapeId); if (X1 - X0 < 0.05 || Y1 - Y0 < 0.05) return []; try { return shapeId === 'polygon' ? O.shapeIn(W, { id: 'p', label: '', make: () => [V.polySub(0, 0, 1, sides)] }, X0, Y0, X1, Y1) : shapeId === 'star' ? O.shapeIn(W, { id: 's', label: '', make: () => [V.polySub(0, 0, 1, sides, 0.45)] }, X0, Y0, X1, Y1) : def ? O.shapeIn(W, def, X0, Y0, X1, Y1) : []; } catch { return []; } };
   const [sides, setSides] = useState(5);
   const [view, setView] = useState({ x: 0, y: 0, s: 6 }); // s: px / mm
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -167,8 +172,14 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   useEffect(() => { if (!cm) return; const f = (e: PointerEvent) => { if (!(e.target as Element).closest('.vcm')) setCm(null); }; addEventListener('pointerdown', f); return () => removeEventListener('pointerdown', f); }, [cm]);
   useEffect(() => { if (!menu) return; const f = (e: PointerEvent) => { if (!(e.target as Element).closest('.vmenu')) setMenu(null); }; addEventListener('pointerdown', f); return () => removeEventListener('pointerdown', f); }, [menu]);
 
+  /** Yola oturtulmuş yazılar: bağlı olduğu nesne değişince yol yeniden alınır (yazı nesneyle birlikte taşınır, ölçeklenir). */
+  const relinkPaths = (next: V.Item[], prev: V.Item[]): V.Item[] => {
+    if (!next.some(i => i.text?.path?.ref !== undefined)) return next;
+    const pm = new Map(prev.map(i => [i.id, i])), nm = new Map(next.map(i => [i.id, i]));
+    return next.map(x => { const r = x.text?.path?.ref; if (r === undefined) return x; const host = nm.get(r); if (!host) return { ...x, text: { ...x.text!, path: { ...x.text!.path!, ref: undefined } } }; if (pm.get(r)?.subs === host.subs || !host.subs.length) return x; const pts = pathPts(host); return relayout(x, { path: { ...x.text!.path!, pts, flip: host.subs[0].closed && x.text!.path!.side ? sideFlip(pts, x.text!.path!.side) : x.text!.path!.flip } }); });
+  };
   const setItems = (f: V.Item[] | ((a: V.Item[]) => V.Item[]), record = true) => {
-    const next = typeof f === 'function' ? f(itemsRef.current) : f;
+    const prev = itemsRef.current, next = relinkPaths(typeof f === 'function' ? f(prev) : f, prev);
     if (record) { past.current.push(itemsRef.current); if (past.current.length > 200) past.current.shift(); future.current = []; }
     itemsRef.current = next; setItemsState(next);
   };
@@ -187,7 +198,8 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   };
   const setSel = (f: number[] | ((s: number[]) => number[])) => { setSelRaw(f); setRc(null); };
   const selItems = items.filter(it => sel.includes(it.id));
-  const sb = V.bounds(selItems);
+  /** Seçim kutusu: PowerClip içindekiler kabın dışına taşsa da kutuya katılmaz. */
+  const boxItems = selItems.filter(i => i.clip === undefined || !sel.includes(i.clip)), sb = V.bounds(boxItems.length ? boxItems : selItems);
   const layerOf = (it: V.Item) => layers.find(l => l.id === it.layer) ?? layers[0];
   const isHid = (it: V.Item) => !!it.hidden || !!layerOf(it)?.hidden, isLock = (it: V.Item) => !!it.locked || !!layerOf(it)?.locked;
   const live = items.filter(i => !isHid(i));
@@ -390,11 +402,20 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
   const clipIn = () => { const box_ = lastPick.current; const kids = sel.filter(id => id !== box_); if (box_ === null || !kids.length || !items.find(i => i.id === box_)?.subs.some(s => s.closed)) return alert('Önce içine konacakları, en son kabı (kapalı şekil) seç'); applyTo(kids, x => ({ ...x, clip: box_, group: undefined })); setSel(expand([box_])); };
   const clipOut = () => applyTo(items.filter(i => i.clip !== undefined && (sel.includes(i.clip) || sel.includes(i.id))).map(i => i.id), x => ({ ...x, clip: undefined }));
   const simplifySel = () => { const list = items.filter(x => sel.includes(x.id) && !x.img); if (list.length < 2) return; try { const r = O.simplifyOverlaps(W, list), m = new Map(r.map(x => [x.id, x])); setItems(a => a.filter(x => !sel.includes(x.id) || m.has(x.id)).map(x => m.get(x.id) ?? x)); } catch (e) { alert((e as Error).message); } };
-  const fitTextToPath = () => {
-    const t = selItems.find(i => i.text), p = selItems.find(i => !i.text && i.subs.length); if (!t || !p) return alert('Bir yazı ve bir yol / şekil seç');
-    const s = p.subs[0], pts = V.flattenSub(s, 32); if (s.closed) pts.push(pts[0]);
-    setItems(a => a.map(x => x.id === t.id ? relayout(x, { path: { pts, offset: 0 } }) : x));
+  /** Yazının oturduğu yol: nesnenin ilk alt yolu (kapalıysa kapatılır). */
+  const pathPts = (p: V.Item): P[] => { const q = p.subs[0], pts = V.flattenSub(q, 32); if (q.closed && pts.length) pts.push(pts[0]); return pts; };
+  /** Harflerin üst yönü (sin a, −cos a) istenen tarafa (dış / iç) bakacak şekilde yolun yönü. */
+  const sideFlip = (pts: P[], side: 'out' | 'in') => { const n = pts.length, cx = pts.reduce((q, p) => q + p[0], 0) / n, cy = pts.reduce((q, p) => q + p[1], 0) / n, i = Math.floor(n / 4), a = Math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]), out = Math.sin(a) * (pts[i][0] - cx) - Math.cos(a) * (pts[i][1] - cy) > 0; return side === 'out' ? !out : out; };
+  /** Yazıyı nesnenin dışına ya da içine oturt (Corel Fit Text to Path); yazı nesneye bağlı kalır, nesne değişince birlikte güncellenir. */
+  const fitTextToPath = (side: 'out' | 'in' = 'out') => {
+    const t = selItems.find(i => i.text), p = selItems.find(i => !i.text && !i.img && i.subs.length) ?? items.find(i => i.id === t?.text?.path?.ref); if (!t || !p) return alert('Bir yazı ve bir şekil (ya da yol) seç');
+    const pts = pathPts(p), closed = p.subs[0].closed, flip = closed ? sideFlip(pts, side) : false, op = flip ? [...pts].reverse() : pts, L = O.pathLen(pts);
+    const plain = O.layoutText(kernel, { ...t.text!, path: undefined, rot: 0, box: undefined }), w = plain.carets[plain.carets.length - 1].x - plain.carets[0].x;
+    let mid = L / 2; if (closed) { const k = side === 'out' ? op.reduce((m, q, i) => q[1] < op[m][1] ? i : m, 0) : op.reduce((m, q, i) => q[1] > op[m][1] ? i : m, 0); mid = O.pathLen(op.slice(0, k + 1)); } // dışta tepeye, içte dibe ortala
+    setItems(a => a.map(x => x.id === t.id ? relayout(x, { path: { pts, offset: mid - w / 2, flip, side: closed ? side : undefined, dist: side === 'in' ? t.text!.size * 0.15 : t.text!.size * 0.1, ref: p.id }, box: undefined }) : x)); setSel([t.id]);
   };
+  /** Yoldan çıkar: düz yazı (yerinde) ya da yoldaki hâliyle eğri. */
+  const unPath = (curves: boolean) => applyTo(sel, x => !x.text?.path ? x : curves ? { ...x, text: undefined } : relayout(x, { path: undefined, x: x.text.path.pts[0]?.[0] ?? x.text.x, y: x.text.path.pts[0]?.[1] ?? x.text.y }));
 
   // --- renk ---
   const remember = (c: string | null) => c && setRecent(r => [c, ...r.filter(x => x !== c)].slice(0, 12));
@@ -613,8 +634,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     if (draft) {
       const [x0, y0] = draft.a, [x1, y1] = draft.b, w = Math.abs(x1 - x0), h = Math.abs(y1 - y0); setDraft(null);
       if (Math.max(w, h) > 0.4) {
-        const X0 = Math.min(x0, x1), Y0 = Math.min(y0, y1), def = O.SHAPES.find(s => s.id === shapeId);
-        const subs = shapeId === 'polygon' ? O.shapeIn(W, { id: 'p', label: '', make: () => [V.polySub(0, 0, 1, sides)] }, X0, Y0, X0 + w, Y0 + h) : shapeId === 'star' ? O.shapeIn(W, { id: 's', label: '', make: () => [V.polySub(0, 0, 1, sides, 0.45)] }, X0, Y0, X0 + w, Y0 + h) : def ? O.shapeIn(W, def, X0, Y0, X0 + w, Y0 + h) : [];
+        const def = O.SHAPES.find(s => s.id === shapeId), subs = shapeIn(draft.a, draft.b);
         if (subs.length) add({ ...styled(subs, def?.even), name: def?.label ?? (shapeId === 'star' ? 'Yıldız' : 'Çokgen') });
         setToolRaw('select');
       }
@@ -666,6 +686,12 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
     const ids = e.shiftKey ? (was ? sel.filter(x => !unit.includes(x)) : [...sel, ...unit]) : was ? sel : unit;
     setSel(ids); lastPick.current = it.id;
     if (tool === 'node') return;
+    const tp = it.text?.path; if (tp && ids.length === 1 && !e.shiftKey) { // yoldaki yazı: mıknatıslı kaydırma
+      const op = tp.flip ? [...tp.pts].reverse() : tp.pts, proj = (x: number, y: number) => { const q = O.projectPath(op, x, y); return { s: q.s, d: Math.sin(q.a) * (x - q.p[0]) - Math.cos(q.a) * (y - q.p[1]) }; };
+      const g = proj(...at(e)), base = itemsRef.current, L = O.pathLen(op), closed = tp.pts.length > 2 && tp.pts[0][0] === tp.pts[tp.pts.length - 1][0] && tp.pts[0][1] === tp.pts[tp.pts.length - 1][1]; let first = true, ps = g.s, wrap = 0;
+      drag.current = (x, y) => { const q = proj(x, y); if (closed && L) { if (q.s - ps > L / 2) wrap -= L; else if (ps - q.s > L / 2) wrap += L; } ps = q.s; const n = relayout(it, { path: { ...tp, offset: Math.round((tp.offset + q.s + wrap - g.s) * 100) / 100, dist: Math.round(((tp.dist ?? 0) + q.d - g.d) * 100) / 100 } }); setItems(base.map(z => z.id === it.id ? n : z), first); first = false; };
+      return;
+    }
     if (was && !e.shiftKey) toggle.current = true; else setXform('scale');
     const [x0, y0] = at(e), base = itemsRef.current, b0 = V.bounds(base.filter(q => ids.includes(q.id))), T = snapTargets(ids); let first = true;
     let grabPt: P | null = null, gd = 9 * px; for (const q of base.filter(q2 => ids.includes(q2.id))) for (const sub of q.subs) for (const pt of sub.pts) { const d = Math.hypot(pt.x - x0, pt.y - y0); if (d < gd) { gd = d; grabPt = [pt.x, pt.y]; } }
@@ -904,7 +930,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       <path className="vrot" d={`M${a[0]} ${a[1]}L${b[0]} ${b[1]}`} strokeWidth={2 * px} /><path className="vroth" d={head(b, 1) + head(a, -1)} /></>;
   };
   const one = selItems[0];
-  const fxAvail: [string, string][] = ['corners', 'pattern', 'clip', 'path', 'trace'].map(k => [k, FX_LABEL[k]]);
+  const fxAvail: [string, string][] = ['pattern', 'clip', 'path', 'trace'].map(k => [k, FX_LABEL[k]]);
   const fxShown = fxKeys.filter(k => fxAvail.some(([q]) => q === k));
   const shapeSubs = useMemo(() => Object.fromEntries(O.SHAPES.map(q => { try { return [q.id, q.make(W)]; } catch { return [q.id, []]; } })) as Record<string, V.Sub[]>, [W]);
   const shapePrev = (subs: V.Sub[], even?: boolean) => { const it = { id: 0, subs, fill: null, stroke: null, sw: 0, even: !!even }, b = V.bounds([it]); if (!b) return <svg viewBox="0 0 24 24" />; const k = 20 / Math.max(b.x1 - b.x0, b.y1 - b.y0); return <svg viewBox="-2 -2 24 24"><path d={V.itemD(V.mapItem(it, (x, y) => [(x - b.x0) * k + (20 - (b.x1 - b.x0) * k) / 2, (y - b.y0) * k + (20 - (b.y1 - b.y0) * k) / 2]))} fillRule={even ? 'evenodd' : 'nonzero'} /></svg>; };
@@ -1014,15 +1040,15 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
           <text className="vblabel" x={b.x} y={b.y - 5 * px} fontSize={12 * px} onPointerDown={e => { if (tool !== 'select') return; e.stopPropagation(); setSelBoard(b.id); setSel([]); const [x0, y0] = at(e), b0 = b; const bs = boards; drag.current = (x, y) => setBoards(bs.map(q => q.id === b0.id ? { ...q, x: Math.round((b0.x + x - x0) * 10) / 10, y: Math.round((b0.y + y - y0) * 10) / 10 } : q)); }}>{b.name} · {b.w}×{b.h} mm</text></g>)}
         {guide && <path d={guide} className="guide" strokeWidth={2} />}
         {ordered.map(itemEl)}
-        {selItems.map(it => <path key={'o' + it.id} d={V.itemDc(it)} className="vselo" strokeWidth={px} />)}
+        {boxItems.map(it => <path key={'o' + it.id} d={V.itemDc(it)} className="vselo" strokeWidth={px * 0.5} />)}
         {guides.map((g, i) => { const props = { className: selGuide === i ? 'vguide on' : 'vguide', onPointerDown: (e: PE) => guideDown(i, e), onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setSelGuide(i); setCm({ x: e.clientX, y: e.clientY, guide: i }); } };
           return g.axis === 'x' ? <g key={i} {...props}><line x1={g.pos} x2={g.pos} y1={view.y - size.h * px} y2={view.y + size.h * px} stroke="transparent" strokeWidth={8 * px} /><line className="vgl" x1={g.pos} x2={g.pos} y1={view.y - size.h * px} y2={view.y + size.h * px} strokeWidth={px} /></g>
             : <g key={i} {...props}><line y1={g.pos} y2={g.pos} x1={view.x - size.w * px} x2={view.x + size.w * px} stroke="transparent" strokeWidth={8 * px} /><line className="vgl" y1={g.pos} y2={g.pos} x1={view.x - size.w * px} x2={view.x + size.w * px} strokeWidth={px} /></g>; })}
         {snapP && <g className="vsnapp"><rect x={snapP[0] - 4 * px} y={snapP[1] - 4 * px} width={8 * px} height={8 * px} strokeWidth={1.5 * px} /></g>}
         {snapL.x !== undefined && <line className="vsnap" x1={snapL.x} x2={snapL.x} y1={view.y - size.h * px} y2={view.y + size.h * px} strokeWidth={px} />}
         {snapL.y !== undefined && <line className="vsnap" y1={snapL.y} y2={snapL.y} x1={view.x - size.w * px} x2={view.x + size.w * px} strokeWidth={px} />}
-        {tool === 'select' && sb && !edit && <g className="selbox">
-          <rect x={sb.x0} y={sb.y0} width={sb.x1 - sb.x0} height={sb.y1 - sb.y0} strokeWidth={px} strokeDasharray={`${3 * px}`} />
+        {tool === 'select' && sb && !edit && !(selItems.length === 1 && selItems[0].text?.path) && <g className="selbox">
+          <rect x={sb.x0} y={sb.y0} width={sb.x1 - sb.x0} height={sb.y1 - sb.y0} strokeWidth={px * 0.5} strokeDasharray={`${3 * px}`} />
           {xform === 'scale' ? [-1, 0, 1].flatMap(ix => [-1, 0, 1].map(iy => (ix || iy) ? <rect key={`${ix},${iy}`} x={(ix < 0 ? sb.x0 : ix > 0 ? sb.x1 : (sb.x0 + sb.x1) / 2) - r} y={(iy < 0 ? sb.y0 : iy > 0 ? sb.y1 : (sb.y0 + sb.y1) / 2) - r} width={2 * r} height={2 * r} strokeWidth={px} onPointerDown={e => handleDown('scale', ix, iy, e)} style={{ cursor: ix && iy ? (ix === iy ? 'nwse-resize' : 'nesw-resize') : ix ? 'ew-resize' : 'ns-resize' }} /> : null))
             : <>
               {[-1, 1].flatMap(ix => [-1, 1].map(iy => <g key={`r${ix},${iy}`} className="vrotg" onPointerDown={e => handleDown('rot', ix, iy, e)}>{rotIcon(ix < 0 ? sb.x0 : sb.x1, iy < 0 ? sb.y0 : sb.y1, ix, iy)}</g>))}
@@ -1048,6 +1074,7 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
         {pen && <path d={V.subD(pen)} fill="none" stroke="#1677ff" strokeWidth={1.5 * px} />}
         {pen?.pts.map((p, i) => <rect key={i} x={p.x - r} y={p.y - r} width={2 * r} height={2 * r} className="nd" strokeWidth={px} />)}
         {ink && <polyline points={ink.map(p => p.join(',')).join(' ')} fill="none" stroke={tool === 'eraser' ? '#ff4d4f66' : tool === 'brush' ? '#1677ff88' : '#1677ff'} strokeWidth={tool === 'eraser' ? eraser * 2 : tool === 'brush' && brush.mode !== 'spray' ? brush.w * (brush.mode === 'calli' ? 0.5 : 0.8) : 1.5 * px} strokeLinecap="round" strokeLinejoin="round" />}
+        {draft && tool === 'shape' && (() => { const subs = shapeIn(draft.a, draft.b), st = styled(subs, O.SHAPES.find(q => q.id === shapeId)?.even); return subs.length ? <path className="vdraft" d={subs.map(V.subD).join('')} fill={st.fill ? C.css(st.fill) : 'none'} fillOpacity={0.85} fillRule={st.even ? 'evenodd' : 'nonzero'} stroke={st.stroke ? C.css(st.stroke) : 'none'} strokeWidth={st.sw} style={{ pointerEvents: 'none' }} /> : null; })()}
         {draft && <rect x={Math.min(draft.a[0], draft.b[0])} y={Math.min(draft.a[1], draft.b[1])} width={Math.abs(draft.b[0] - draft.a[0])} height={Math.abs(draft.b[1] - draft.a[1])} fill="none" stroke="#1677ff" strokeDasharray={`${4 * px}`} strokeWidth={px} />}
         {line && <><line x1={line.a[0]} y1={line.a[1]} x2={line.b[0]} y2={line.b[1]} stroke={tool === 'knife' ? '#ff4d4f' : '#1677ff'} strokeWidth={1.5 * px} strokeDasharray={tool === 'knife' ? `${4 * px}` : undefined} />{tool === 'dim' && <text x={(line.a[0] + line.b[0]) / 2} y={(line.a[1] + line.b[1]) / 2 - 4 * px} fontSize={12 * px} className="vdimt">{Math.hypot(line.b[0] - line.a[0], line.b[1] - line.a[1]).toFixed(1)} mm</text>}</>}
         {marq && <rect x={Math.min(marq.a[0], marq.b[0])} y={Math.min(marq.a[1], marq.b[1])} width={Math.abs(marq.b[0] - marq.a[0])} height={Math.abs(marq.b[1] - marq.a[1])} className="vmarq" strokeWidth={px} strokeDasharray={`${3 * px}`} />}
@@ -1148,47 +1175,48 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       </Card>
 
       <Card id="stroke" icon={<PenLine />} title="Kenar çizgisi" hint="F12">
-        <label className="field"><span>Kalınlık (mm)</span><input type="number" min={0.05} step={0.05} value={Math.round(curSw * 1000) / 1000} onChange={e => lineStyle({ sw: Math.max(0.05, +e.target.value || 0.05) })} /></label>
+        <label className="ifield" title="Çizgi kalınlığı"><IcoStrokeW /><span className="lbl">Kalınlık</span><input type="number" min={0.05} step={0.05} value={Math.round(curSw * 1000) / 1000} onChange={e => lineStyle({ sw: Math.max(0.05, +e.target.value || 0.05) })} /><i>mm</i></label>
         <div className="chips">{[['Kıl', 0.1], ['0.25', 0.25], ['0.5', 0.5], ['1', 1], ['2', 2]].map(([l, v]) => <button key={l} className={Math.abs(curSw - (v as number)) < 1e-6 ? 'chip on' : 'chip'} onClick={() => lineStyle({ sw: v as number, stroke: one?.stroke ?? stroke ?? (mode === 'cmyk' ? 'cmyk(0,0,0,100)' : '#222222') })}>{l}</button>)}</div>
-        <label className="field"><span>Çizgi tipi</span><select value={DASHES.findIndex(d => JSON.stringify(d[1]) === JSON.stringify(one?.dash ?? []))} onChange={e => lineStyle({ dash: DASHES[+e.target.value][1].map(v => v * Math.max(1, curSw * 2)) })}>{DASHES.map(([l], i) => <option key={l} value={i}>{l}</option>)}</select></label>
-        <div className="grid2"><label className="field"><span>Köşe</span><select value={one?.join ?? 'round'} onChange={e => lineStyle({ join: e.target.value as V.Item['join'] })}><option value="miter">Sivri</option><option value="round">Yuvarlak</option><option value="bevel">Pahlı</option></select></label>
-          <label className="field"><span>Uç</span><select value={one?.cap ?? 'round'} onChange={e => lineStyle({ cap: e.target.value as V.Item['cap'] })}><option value="butt">Düz</option><option value="round">Yuvarlak</option><option value="square">Kare</option></select></label></div>
+        <div className="sec-t">Çizgi tipi</div>
+        <div className="dash-row">{DASHES.map(([l, d], i) => { const on = JSON.stringify(d) === JSON.stringify((one?.dash ?? []).map(v => v / Math.max(1, curSw * 2))) || (i === 0 && !one?.dash?.length); return <button key={l} title={l} className={on ? 'on' : ''} onClick={() => lineStyle({ dash: d.map(v => v * Math.max(1, curSw * 2)) })}><svg viewBox="0 0 40 8" width="40" height="8"><line x1="2" y1="4" x2="38" y2="4" stroke="currentColor" strokeWidth="2.2" strokeDasharray={d.map(v => v * 3).join(' ') || undefined} strokeLinecap={d.length && d[0] < 0.5 ? 'round' : 'butt'} /></svg></button>; })}</div>
+        <div className="grid2 tight"><div><div className="sec-t">Köşe</div><div className="icon-seg">{([['miter', 'Sivri köşe', IcoJoinMiter], ['round', 'Yuvarlak köşe', IcoJoinRound], ['bevel', 'Pahlı köşe', IcoJoinBevel]] as const).map(([k, l, I]) => <button key={k} title={l} className={(one?.join ?? 'round') === k ? 'on' : ''} onClick={() => lineStyle({ join: k })}><I /></button>)}</div></div>
+          <div><div className="sec-t">Uç</div><div className="icon-seg">{([['butt', 'Düz uç', IcoCapButt], ['round', 'Yuvarlak uç', IcoCapRound], ['square', 'Kare uç', IcoCapSquare]] as const).map(([k, l, I]) => <button key={k} title={l} className={(one?.cap ?? 'round') === k ? 'on' : ''} onClick={() => lineStyle({ cap: k })}><I /></button>)}</div></div></div>
         {(sel.length ? selItems.some(i => i.subs.some(q => !q.closed)) : true) && <>
-          <div className="row-h"><b>Ok uçları</b></div>
-          <div className="grid2"><label className="field"><span>Başlangıç</span><select value={one?.arrows?.s ?? ''} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), s: (e.target.value || undefined) as V.ArrowKind | undefined }, stroke: one?.stroke ?? '#222222' })}>{ARROWS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
-            <label className="field"><span>Bitiş</span><select value={one?.arrows?.e ?? ''} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), e: (e.target.value || undefined) as V.ArrowKind | undefined }, stroke: one?.stroke ?? '#222222' })}>{ARROWS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
-            <label className="field"><span>Ok boyu (mm)</span><input type="number" min={0.3} step={0.5} value={Math.round((one?.arrows?.size ?? Math.max(1.5, curSw * 4)) * 10) / 10} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), size: Math.max(0.3, +e.target.value || 1) } })} /></label>
-            <button className="tb" style={{ alignSelf: 'end' }} disabled={!one?.arrows} onClick={() => applyTo(sel, x => x.arrows ? { ...x, arrows: { ...x.arrows, s: x.arrows.e, e: x.arrows.s } } : x)}>Uçları değiştir</button></div>
+          <div className="sec-t">Ok uçları</div>
+          {(['s', 'e'] as const).map(end => <div className="arrow-row" key={end}><span className="lbl">{end === 's' ? 'Baş' : 'Son'}</span>{ARROWS.map(([k, l]) => <button key={k || 'none'} title={l.replace(/ .$/, '')} className={(one?.arrows?.[end] ?? '') === k ? 'on' : ''} onClick={() => lineStyle({ arrows: { ...(one?.arrows ?? {}), [end]: (k || undefined) as V.ArrowKind | undefined }, stroke: one?.stroke ?? '#222222' })}><ArrowPrev k={k} flip={end === 's'} /></button>)}</div>)}
+          <div className="grid2"><label className="ifield" title="Ok boyu"><IcoArrowSize /><input type="number" min={0.3} step={0.5} value={Math.round((one?.arrows?.size ?? Math.max(1.5, curSw * 4)) * 10) / 10} onChange={e => lineStyle({ arrows: { ...(one?.arrows ?? {}), size: Math.max(0.3, +e.target.value || 1) } })} /><i>mm</i></label>
+            <button className="tb icon-btn" disabled={!one?.arrows} onClick={() => applyTo(sel, x => x.arrows ? { ...x, arrows: { ...x.arrows, s: x.arrows.e, e: x.arrows.s } } : x)}><ArrowLeftRight />Uçları değiştir</button></div>
         </>}
-        <label className="check"><input type="checkbox" checked={!one?.fixedStroke} onChange={e => lineStyle({ fixedStroke: !e.target.checked })} /> Nesneyle ölçeklensin</label>
+        <label className="chk-line"><input type="checkbox" checked={!one?.fixedStroke} onChange={e => lineStyle({ fixedStroke: !e.target.checked })} /> Nesneyle ölçeklensin</label>
         {!isFree && <p className="hint">Yüzeyde ve 3B'de çizgi kalınlığı da katı olur.</p>}
       </Card>
 
       {sb && <Card id="xform" icon={<Move />} title="Dönüştür" hint="Ctrl+R: tekrarla">
-        <div className="grid2">{([['X (orta)', (sb.x0 + sb.x1) / 2], ['Y (orta)', (sb.y0 + sb.y1) / 2], ['Genişlik', sb.x1 - sb.x0], ['Yükseklik', sb.y1 - sb.y0]] as const).map(([l, v], k) => <label className="field" key={l}><span>{l}</span><input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0, cx = (sb.x0 + sb.x1) / 2, cy = (sb.y0 + sb.y1) / 2; if (k === 0) nudge(x - cx, 0); if (k === 1) nudge(0, x - cy); if (k === 2 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / w, cy + (b - cy) * x / w], x / w)); if (k === 3 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / h, cy + (b - cy) * x / h], x / h)); }} /></label>)}</div>
-        <div className="seg">{([['rot', 'Döndür'], ['scale', 'Ölçek'], ['skew', 'Eğ']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
-        {tab === 'rot' && <label className="field"><span>Açı (°)</span><input type="number" step={1} value={tf.rot} onChange={e => setTf({ ...tf, rot: +e.target.value || 0 })} /></label>}
-        {tab === 'scale' && <div className="grid2"><label className="field"><span>Yatay %</span><input type="number" value={tf.sx} onChange={e => setTf({ ...tf, sx: +e.target.value || 100 })} /></label><label className="field"><span>Dikey %</span><input type="number" disabled={tf.lockS} value={tf.lockS ? tf.sx : tf.sy} onChange={e => setTf({ ...tf, sy: +e.target.value || 100 })} /></label><label className="check"><input type="checkbox" checked={tf.lockS} onChange={e => setTf({ ...tf, lockS: e.target.checked })} /> Orantılı</label></div>}
-        {tab === 'skew' && <div className="grid2"><label className="field"><span>Yatay (°)</span><input type="number" value={tf.kx} onChange={e => setTf({ ...tf, kx: +e.target.value || 0 })} /></label><label className="field"><span>Dikey (°)</span><input type="number" value={tf.ky} onChange={e => setTf({ ...tf, ky: +e.target.value || 0 })} /></label></div>}
-        <div className="grid2"><label className="field"><span>Kopya sayısı</span><input type="number" min={0} max={200} value={tf.copies} onChange={e => setTf({ ...tf, copies: Math.max(0, Math.min(200, Math.round(+e.target.value || 0))) })} /></label><button className="tb primary" style={{ alignSelf: 'end' }} onClick={() => act('transformCopies', tab)}>Uygula</button></div>
-        <div className="row-h"><b>Adımla çoğalt</b><small>Ctrl+Shift+D</small></div>
-        <div className="grid2"><label className="field"><span>Kopya</span><input type="number" min={1} max={500} value={step.n} onChange={e => setStep({ ...step, n: Math.max(1, Math.min(500, Math.round(+e.target.value || 1))) })} /></label><span />
-          <label className="field"><span>Yatay aralık (mm)</span><input type="number" step={0.5} value={step.dx} onChange={e => setStep({ ...step, dx: +e.target.value || 0 })} /></label><label className="field"><span>Dikey aralık (mm)</span><input type="number" step={0.5} value={step.dy} onChange={e => setStep({ ...step, dy: +e.target.value || 0 })} /></label></div>
-        <button className="tb wide" onClick={() => act('stepRepeat', step.n, step.dx, step.dy)}>Çoğalt</button>
+        {selItems.length === 1 && !one.img && !one.text && one.subs.some(q => q.closed) && <><div className="sec-t">Köşeler</div><CornerPanel it={one} set={(f, rec = true) => applyTo(sel, f, rec)} /></>}
+        <div className="sec-t">Konum ve boyut</div>
+        <div className="grid2">{([['X', 'Yatay konum (orta)', (sb.x0 + sb.x1) / 2], ['Y', 'Dikey konum (orta)', (sb.y0 + sb.y1) / 2], ['G', 'Genişlik', sb.x1 - sb.x0], ['Y2', 'Yükseklik', sb.y1 - sb.y0]] as const).map(([q, l, v], k) => <label className="ifield" key={q} title={l}>{k === 2 ? <MoveHorizontal /> : k === 3 ? <MoveVertical /> : <span className="ax">{q}</span>}<input type="number" step={0.5} value={Math.round(v * 100) / 100} onChange={e => { const x = +e.target.value; if (!Number.isFinite(x)) return; const w = sb.x1 - sb.x0, h = sb.y1 - sb.y0, cx = (sb.x0 + sb.x1) / 2, cy = (sb.y0 + sb.y1) / 2; if (k === 0) nudge(x - cx, 0); if (k === 1) nudge(0, x - cy); if (k === 2 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / w, cy + (b - cy) * x / w], x / w)); if (k === 3 && x > 0) applyTo(sel, it => V.mapItem(it, (a, b) => [cx + (a - cx) * x / h, cy + (b - cy) * x / h], x / h)); }} /><i>mm</i></label>)}</div>
+        <div className="sec-t">Dönüştür</div>
+        <div className="icon-seg">{([['rot', 'Döndür', RotateCw], ['scale', 'Ölçek', Scaling], ['skew', 'Eğ', IcoSkew]] as const).map(([k, l, I]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}><I /><span>{l}</span></button>)}</div>
+        {tab === 'rot' && <label className="ifield" title="Döndürme açısı"><RotateCw /><input type="number" step={1} value={tf.rot} onChange={e => setTf({ ...tf, rot: +e.target.value || 0 })} /><i>°</i></label>}
+        {tab === 'scale' && <div className="scale-row"><label className="ifield" title="Yatay ölçek"><MoveHorizontal /><input type="number" value={tf.sx} onChange={e => setTf({ ...tf, sx: +e.target.value || 100 })} /><i>%</i></label><button className={'ib lock' + (tf.lockS ? ' on' : '')} title={tf.lockS ? 'Orantılı (kilidi aç)' : 'Orantısız (kilitle)'} aria-pressed={tf.lockS} onClick={() => setTf({ ...tf, lockS: !tf.lockS })}>{tf.lockS ? <Link2 /> : <Link2Off />}</button><label className="ifield" title="Dikey ölçek"><MoveVertical /><input type="number" disabled={tf.lockS} value={tf.lockS ? tf.sx : tf.sy} onChange={e => setTf({ ...tf, sy: +e.target.value || 100 })} /><i>%</i></label></div>}
+        {tab === 'skew' && <div className="grid2"><label className="ifield" title="Yatay eğme"><IcoSkew /><input type="number" value={tf.kx} onChange={e => setTf({ ...tf, kx: +e.target.value || 0 })} /><i>°</i></label><label className="ifield" title="Dikey eğme"><span className="cico" style={{ transform: 'rotate(90deg)' }}><IcoSkew /></span><input type="number" value={tf.ky} onChange={e => setTf({ ...tf, ky: +e.target.value || 0 })} /><i>°</i></label></div>}
+        <div className="grid2"><label className="ifield" title="Kopya sayısı (0: nesnenin kendisi dönüşür)"><Copy /><input type="number" min={0} max={200} value={tf.copies} onChange={e => setTf({ ...tf, copies: Math.max(0, Math.min(200, Math.round(+e.target.value || 0))) })} /><i>kopya</i></label><button className="tb primary" onClick={() => act('transformCopies', tab)}>Uygula</button></div>
+        <div className="sec-t">Adımla çoğalt <small>Ctrl+Shift+D</small></div>
+        <div className="step-row"><label className="ifield" title="Kopya sayısı"><Copy /><input type="number" min={1} max={500} value={step.n} onChange={e => setStep({ ...step, n: Math.max(1, Math.min(500, Math.round(+e.target.value || 1))) })} /></label>
+          <label className="ifield" title="Yatay aralık"><MoveHorizontal /><input type="number" step={0.5} value={step.dx} onChange={e => setStep({ ...step, dx: +e.target.value || 0 })} /><i>mm</i></label><label className="ifield" title="Dikey aralık"><MoveVertical /><input type="number" step={0.5} value={step.dy} onChange={e => setStep({ ...step, dy: +e.target.value || 0 })} /><i>mm</i></label></div>
+        <button className="tb wide icon-btn" onClick={() => act('stepRepeat', step.n, step.dx, step.dy)}><Copy />Çoğalt</button>
       </Card>}
 
       {(textItem || tool === 'text') && <Card id="text" icon={<Type />} title="Yazı">
         {edit && edit.a !== edit.b && <p className="hint">Seçili harflere uygulanır: yazı tipi, boy ve paletten renk.</p>}
         <FontPicker value={textItem ? (edit && edit.a !== edit.b ? textItem.text!.cs?.[Math.min(edit.a, edit.b)]?.font ?? textItem.text!.font : textItem.text!.font) : textDef.font} onChange={v => { if (textItem && edit && edit.a !== edit.b) { void charStyle({ font: v }); return; } if (textItem) editText(textItem, { font: v }); else { setTextDef({ ...textDef, font: v }); void os.ensureFont(kernel, v); } }} />
-        <div className="grid2"><label className="field"><span>Boy (mm)</span><input type="number" min={0.5} step={0.5} value={Math.round((textItem ? textItem.text!.size : textDef.size) * 100) / 100} onChange={e => { const v = Math.max(0.5, +e.target.value || 0.5); if (textItem && edit && edit.a !== edit.b) { void charStyle({ size: v }); return; } if (textItem) editText(textItem, { size: v }); else setTextDef({ ...textDef, size: v }); }} /></label>
-          {textItem && <label className="field"><span>Harf aralığı (mm)</span><input type="number" step={0.1} value={Math.round((textItem.text!.ls ?? 0) * 100) / 100} onChange={e => editText(textItem, { ls: +e.target.value || 0 })} /></label>}</div>
+        <div className="grid2"><label className="ifield" title="Yazı boyu"><ALargeSmall /><input type="number" min={0.5} step={0.5} value={Math.round((textItem ? textItem.text!.size : textDef.size) * 100) / 100} onChange={e => { const v = Math.max(0.5, +e.target.value || 0.5); if (textItem && edit && edit.a !== edit.b) { void charStyle({ size: v }); return; } if (textItem) editText(textItem, { size: v }); else setTextDef({ ...textDef, size: v }); }} /><i>mm</i></label>
+          {textItem && <label className="ifield" title="Harf aralığı (şekil aracında sağ alttaki tutamaçla da sürüklenir)"><IcoLetterSpace /><input type="number" step={0.1} value={Math.round((textItem.text!.ls ?? 0) * 100) / 100} onChange={e => editText(textItem, { ls: +e.target.value || 0 })} /><i>mm</i></label>}</div>
         {textItem && <>
-          <div className="grid2"><label className="field"><span>Satır aralığı</span><input type="number" step={0.05} min={0.5} value={textItem.text!.lh ?? 1} onChange={e => editText(textItem, { lh: Math.max(0.5, +e.target.value || 1) })} /></label>
-            <span /></div>
-          {textItem.text!.box && <label className="field"><span>Kutu genişliği (mm)</span><input type="number" min={2} step={1} value={Math.round(textItem.text!.box.w * 10) / 10} onChange={e => editText(textItem, { box: { w: Math.max(2, +e.target.value || 2) } })} /></label>}
-          {textItem.text!.path && <><label className="field"><span>Yolda kaydır (mm)</span><input type="range" min={0} max={Math.max(1, O.pathLength(textItem.text!.path.pts))} step={0.1} value={textItem.text!.path.offset} onChange={e => editText(textItem, { path: { ...textItem.text!.path!, offset: +e.target.value } })} /></label>
-            <div className="grid2"><button className="tb" onClick={() => editText(textItem, { path: { ...textItem.text!.path!, flip: !textItem.text!.path!.flip } })}>Öbür tarafa al</button><button className="tb" onClick={() => editText(textItem, { path: undefined })}>Yoldan ayır</button></div></>}
-          <div className="grid2"><button className="tb" onClick={() => startEdit(textItem.id)}>Metni düzenle</button><button className="tb" onClick={toCurves}>Eğriye çevir (Ctrl+Q)</button></div>
+          <div className="grid2"><label className="ifield" title="Satır aralığı (şekil aracında sol alttaki tutamaçla da sürüklenir)"><IcoLineHeight /><input type="number" step={0.05} min={0.3} value={textItem.text!.lh ?? 1} onChange={e => editText(textItem, { lh: Math.max(0.3, +e.target.value || 1) })} /><i>×</i></label>
+            {textItem.text!.box ? <label className="ifield" title="Paragraf kutusu genişliği"><MoveHorizontal /><input type="number" min={2} step={1} value={Math.round(textItem.text!.box.w * 10) / 10} onChange={e => editText(textItem, { box: { w: Math.max(2, +e.target.value || 2) } })} /><i>mm</i></label> : <span />}</div>
+          {textItem.text!.path && <><div className="sec-t">Yolda</div><PathPanel it={textItem} canFit={items.some(i => i.id === textItem.text!.path!.ref)} fit={fitTextToPath} set={(p, rec = true) => applyTo(sel, x => x.text?.path ? relayout(x, { path: { ...x.text.path, ...p } }) : x, rec)} commit={() => setItems(a => a)} off={unPath} /></>}
+          <div className="grid2"><button className="tb icon-btn" onClick={() => startEdit(textItem.id)}><TextCursorInput />Metni düzenle</button><button className="tb icon-btn" title="Ctrl+Q" onClick={toCurves}><Spline />Eğriye çevir</button></div>
         </>}
         {!textItem && <p className="hint">Tıkla ve yaz: tek satır yazı. Sürükle: paragraf kutusu (satır kaydırır). Var olan yazıya çift tıkla: düzenle.</p>}
       </Card>}
@@ -1196,16 +1224,15 @@ export function VectorEditor({ kernel, title, initial, guide, note, onSave, onCl
       {(sel.length > 0 || tool === 'fx') && <Card id="fx" icon={<Sparkles />} title="Efektler" hint={fxTool ? FX_TOOLS.find(q => q.k === fxTool)?.label : fxShown.length ? `${fxShown.length} açık` : undefined}>
         <div className="fx-grid panel">{FX_TOOLS.map(t => <button key={t.k} className={(tool === 'fx' && fxTool === t.k) || (!t.live && fxShown.includes(t.k)) ? 'on' : ''} disabled={t.free && !isFree} title={t.free && !isFree ? `${t.label}: yalnız serbest çizimde` : t.tip} onClick={() => pickFx(t.k)}><t.I /><span>{t.label}</span></button>)}</div>
         {one && <FxList it={one} pick={k => pickFx(k)} drop={k => applyTo(sel, x => k === 'shadow' ? { ...x, shadow: undefined } : Fx.dropFx(x, k as keyof V.Fx))} />}
-        {tool === 'fx' && fxTool && fxTool !== 'blend' && (one ? <div className="fx-panel"><div className="sec-t">{FX_TOOLS.find(q => q.k === fxTool)?.label}</div><FxPanel k={fxTool} it={one} free={isFree} defaults={fxDef} setDefaults={setFxDef} set={(f, rec = true) => applyTo(sel, f, rec)} commit={() => setItems(a => a)} color={(label: string, value: string, onChange: (c: string) => void, id: string) => <><button className="vchip" data-cp onClick={() => setPicker(picker === `fx-${id}` ? null : `fx-${id}`)}><span className="sw" style={{ background: C.css(value) }} />{label}</button>{picker === `fx-${id}` && <ColorPicker value={value} mode={mode} onChange={onChange} onClose={() => setPicker(null)} />}</>} /></div> : <small className="hint">{FX_TOOLS.find(q => q.k === fxTool)?.tip}</small>)}
+        {tool === 'fx' && fxTool && fxTool !== 'blend' && (one ? <div className="fx-panel"><div className="sec-t">{FX_TOOLS.find(q => q.k === fxTool)?.label}</div><FxPanel k={fxTool} it={one} free={isFree} defaults={fxDef} setDefaults={setFxDef} set={(f, rec = true) => applyTo(sel, f, rec)} onRemove={() => applyTo(sel, x => fxTool === 'shadow' ? { ...x, shadow: undefined } : Fx.dropFx(x, fxTool as keyof V.Fx))} commit={() => setItems(a => a)} color={(label: string, value: string, onChange: (c: string) => void, id: string) => <><button className="vchip" data-cp onClick={() => setPicker(picker === `fx-${id}` ? null : `fx-${id}`)}><span className="sw" style={{ background: C.css(value) }} />{label}</button>{picker === `fx-${id}` && <ColorPicker value={value} mode={mode} onChange={onChange} onClose={() => setPicker(null)} />}</>} /></div> : <small className="hint">{FX_TOOLS.find(q => q.k === fxTool)?.tip}</small>)}
         {tool === 'fx' && fxTool === 'blend' && <><label className="ifield" title="Ara adım sayısı"><IcoSteps /><input type="number" min={1} max={100} value={blendN} onChange={e => setBlendN(Math.max(1, Math.min(100, Math.round(+e.target.value || 1))))} /><i>adım</i></label><small className="hint">Bir nesneden öbürüne sürükle. İki nesne seçiliyse düğmeyle de yapılır.</small><button className="tb wide" disabled={units(sel).length !== 2} onClick={blendSel}>Seçili iki nesne arasında geçiş</button></>}
         {one?.fx && <button className="tb wide" title="Efektler ayrı nesnelere ve düz yollara dönüşür; bir daha ayarlanamaz" onClick={() => setItems(a => a.flatMap(x => sel.includes(x.id) ? Fx.bakeFx(W, x) : [x]))}>Efektleri kalıcı yap</button>}
         <div className="grid2"><button className="tb" onClick={toCurves} title="Ctrl+Q">Eğriye çevir</button><button className="tb" disabled={!selItems.some(i => i.stroke)} onClick={outlineObj} title="Ctrl+Shift+Q">Çizgiyi nesneye çevir</button></div>
         {fxShown.map(k => { const lbl = FX_LABEL[k] ?? k, open = fxFold.includes(k), drop = () => setFxKeys(f => f.filter(x => x !== k));
           return <Fold key={k} title={lbl} open={open} onToggle={() => setFxFold(f => open ? f.filter(x => x !== k) : [...f, k])} tools={<button className="ib" title="Kapat" aria-label="Kapat" onClick={drop}><X /></button>}>
-            {k === 'corners' && <div className="grid2"><label className="field"><span>Ölçü (mm)</span><input type="number" min={0.1} step={0.1} value={corner} onChange={e => setCorner(Math.max(0.05, +e.target.value || 0.05))} /></label><span /><button className="tb" onClick={() => doCorner('chamfer')}>Pah</button><button className="tb" onClick={() => doCorner('round')}>Yuvarla</button></div>}
             {k === 'pattern' && <div className="grid2"><label className="field"><span>Desen aralığı (mm)</span><input type="number" min={0} step={0.5} value={patGap} onChange={e => setPatGap(Math.max(0, +e.target.value || 0))} /></label><button className="tb" style={{ alignSelf: 'end' }} onClick={makePattern}>Seçiliden desen oluştur</button></div>}
             {k === 'clip' && <div className="grid2"><button className="tb" disabled={sel.length < 2} onClick={clipIn} title="En son seçilen kap olur">İçine yerleştir</button><button className="tb" disabled={!items.some(i => i.clip !== undefined && (sel.includes(i.clip) || sel.includes(i.id)))} onClick={clipOut}>İçinden çıkar</button></div>}
-            {k === 'path' && <button className="tb wide" disabled={!(selItems.some(i => i.text) && selItems.some(i => !i.text))} onClick={fitTextToPath}>Yazıyı yola oturt</button>}
+            {k === 'path' && <PathPanel it={textItem?.text?.path ? textItem : undefined} canFit={(selItems.some(i => i.text) && selItems.some(i => !i.text && !i.img)) || items.some(i => i.id === textItem?.text?.path?.ref)} fit={fitTextToPath} set={(p, rec = true) => applyTo(sel, x => x.text?.path ? relayout(x, { path: { ...x.text.path, ...p } }) : x, rec)} commit={() => setItems(a => a)} off={unPath} />}
             {k === 'trace' && <button className="tb wide" disabled={!selItems.some(i => i.img)} onClick={() => void traceItem(selItems.find(i => i.img)!)}>Resmi vektöre çevir…</button>}
           </Fold>; })}
       </Card>}

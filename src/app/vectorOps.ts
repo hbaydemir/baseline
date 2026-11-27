@@ -12,7 +12,16 @@ export interface GlyphSource { glyphs(text: string, size: number, font?: string)
 export interface TextLayout { subs: V.Sub[]; carets: { x: number; y: number; a: number }[]; h: number }
 
 /** Polyline üzerinde s uzaklığındaki nokta ve açı. */
-function along(pts: P[], s: number): { p: P; a: number } {
+export const pathLen = (pts: P[]) => pts.reduce((q, p, i) => q + (i ? Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+const isClosed = (pts: P[]) => pts.length > 2 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-6;
+/** Yolda en yakın nokta: baştan uzaklık (s), nokta ve yön açısı. */
+export function projectPath(pts: P[], x: number, y: number): { s: number; p: P; a: number } {
+  let best = { s: 0, p: pts[0] ?? [0, 0] as P, a: 0 }, bd = Infinity, acc = 0;
+  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], L = Math.hypot(x1 - x0, y1 - y0); if (!L) continue; const t = Math.max(0, Math.min(1, ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / (L * L))), p: P = [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t], d = Math.hypot(x - p[0], y - p[1]); if (d < bd) { bd = d; best = { s: acc + t * L, p, a: Math.atan2(y1 - y0, x1 - x0) }; } acc += L; }
+  return best;
+}
+export function along(pts: P[], s: number): { p: P; a: number } {
+  if (isClosed(pts)) { const L = pathLen(pts); if (L) s = ((s % L) + L) % L; } // kapalı yolda yazı başa sarar
   let acc = 0;
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], L = Math.hypot(x1 - x0, y1 - y0);
@@ -71,9 +80,9 @@ export function layoutText(k: GlyphSource, t: V.TextMeta): TextLayout & { subFil
   for (let q = 0; q <= chars.length; q++) carets[q] ??= { x: 0, y: 0, a: 0 };
   const glyphSubs = (q: number) => G[q].d ? V.parseD(G[q].d) : [];
   if (onPath) {
-    const pts = t.path!.flip ? [...t.path!.pts].reverse() : t.path!.pts, off = t.path!.offset;
-    for (const g of placed) { const { p, a } = along(pts, off + g.x + g.adv / 2), c = Math.cos(a), s = Math.sin(a); for (const sub of glyphSubs(g.i)) { subs.push(move(sub, (x, yy) => { const u = x - g.adv / 2; return [p[0] + u * c - yy * s, p[1] + u * s + yy * c]; })); subFill.push(cs[g.i]?.fill ?? null); } }
-    for (const cr of carets) { const { p, a } = along(pts, off + cr.x); cr.x = p[0]; cr.y = p[1]; cr.a = a; }
+    const pts = t.path!.flip ? [...t.path!.pts].reverse() : t.path!.pts, off = t.path!.offset, dd = t.path!.dist ?? 0; // dd: yoldan uzaklık (harflerin üst yönünde)
+    for (const g of placed) { const { p, a } = along(pts, off + g.x + g.adv / 2), c = Math.cos(a), s = Math.sin(a); for (const sub of glyphSubs(g.i)) { subs.push(move(sub, (x, yy0) => { const u = x - g.adv / 2, yy = yy0 - dd; return [p[0] + u * c - yy * s, p[1] + u * s + yy * c]; })); subFill.push(cs[g.i]?.fill ?? null); } }
+    for (const cr of carets) { const { p, a } = along(pts, off + cr.x); cr.x = p[0] + Math.sin(a) * dd; cr.y = p[1] - Math.cos(a) * dd; cr.a = a; }
     return { subs, carets, h: t.size / 0.62 * 0.9, subFill, lineH };
   }
   const r = (t.rot ?? 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), f = (x: number, yy: number): P => [t.x + x * c - yy * s, t.y + x * s + yy * c];
