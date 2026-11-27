@@ -27,11 +27,13 @@ export function PanelGrip({ side = 'left' }: { side?: 'left' }) {
   }} onDoubleClick={() => p.toggle()} />;
 }
 /** Kart listesini sekmeli panele çevirir; son açılan sekme hatırlanır. */
-export function Tabs({ id, children, head }: { id: string; children: ReactNode; head?: ReactNode }) {
+/** force: [sekme, sayaç] değişince o sekme açılır (ör. bir araç seçilince ayarları gösterilir). */
+export function Tabs({ id, children, head, force }: { id: string; children: ReactNode; head?: ReactNode; force?: [string, number] }) {
   const tabs = Children.toArray(children).filter(isValidElement) as ReactElement<TabProps>[];
   const key = `baseline-tab-${id}`, [act, setAct] = useState(() => { try { return localStorage.getItem(key) ?? ''; } catch { return ''; } });
   const panel = usePanel(), cur = tabs.find(t => t.props.id === act) ?? tabs[0];
   const pick = (t: string) => { setAct(t); try { localStorage.setItem(key, t); } catch { /* yok */ } if (panel.collapsed) panel.toggle(false); };
+  useEffect(() => { if (force?.[0]) pick(force[0]); }, [force?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className="tabs">
     <nav className="tab-rail" aria-label="Panel sekmeleri">
       {tabs.map(t => <button key={t.props.id} className={t === cur && !panel.collapsed ? 'on' : ''} data-tip={t.props.title} aria-label={t.props.title} aria-pressed={t === cur} onClick={() => t === cur && !panel.collapsed ? panel.toggle(true) : pick(t.props.id)}>{t.props.icon}</button>)}

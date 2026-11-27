@@ -61,7 +61,10 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
 ![Vektör çizim sayfası](docs/images/2d-vektor.png)
 
 - **Artboardlar:** A3, A4, A5, A6, kartvizit, kare ya da özel ölçü; aynı sayfada yan yana.
-- **Çizim araçları:** Seç, kaydır, yakınlaştır, ölçü çizgisi, yazı, kalem (Bezier), serbest el, şekil aracı (düğüm düzenleme), 38 hazır şekil, damlalık, bıçak, silgi.
+- **Çizim araçları:** Seç, kaydır, yakınlaştır, ölçü çizgisi, yazı, kalem (Bezier), serbest el, şekil aracı (düğüm düzenleme), damlalık, bıçak, silgi.
+- **Fırça (sanatsal ortam):** Çizdiğin yol kalınlığı değişen dolgulu vektör şekle dönüşür. Kipler: hazır profil (iki uç sivri, damla, kalından inceye…), kaligrafi (uç açısı), basınç (kalem tableti; fareyle çizerken ↑ ↓) ve püskürtme (yıldız, kalp, çiçek ya da seçili nesneyi yol boyunca serpiştirir, boy ve açı oynamasıyla).
+- **Yazıda şekil aracı (F10):** Corel'deki gibi sağ alttaki tutamaçla harf aralığını, sol alttakiyle satır aralığını sürükleyerek ayarla. Her harfin solundaki düğümü sürükleyince harf tek başına kayar (Shift ile birden çok harf, çift tık ile yerine döner); yazı düzenlenebilir kalır.
+- **Şekiller:** Menüde en çok kullanılan 6 şekil (dikdörtgen, elips, üçgen, altıgen, çokgen, yıldız); "Daha fazla şekil" ile 30'dan fazla hazır şekil.
 - **Corel kısayolları:**
   - L R T B C E P ile hizalama, eşit dağıtma.
   - Ctrl+G/U ile grupla ve çöz, Ctrl+L/K ile birleştir ve parçala.
@@ -70,7 +73,16 @@ Vektör sayfası, CorelDRAW kullananların alışkanlıklarıyla çalışır: ay
   - F4 tümünü göster, F5 serbest el, F6 dikdörtgen, F7 elips, F8 yazı, F10 şekil aracı.
 - **Döndürme:** Seçili nesneye bir kez daha tıkla: köşelerden döndür, kenar ortalarından eğ, döndürme merkezini taşı.
 - **Mıknatıs:** Düğüm noktalarına, yolun üstüne, nesne kenarlarına, ortalara, artboarda ve kılavuzlara pembe hizalama çizgileriyle yapışır.
-- **Şekillendirme:** Kaynaştır, kırp, kesişim, sadeleştir, kontür, geçiş (blend), PowerClip, zarf/bükme, köşelere pah ve yuvarlatma.
+- **Şekillendirme (Corel'deki 8 işlem):** Birleştir, kaynaştır, kırp, kesişim, sadeleştir, önden arkayı çıkar, arkadan önü çıkar, sınır oluştur. Hedef son seçilen nesnedir.
+- **Hizala ve dağıt:** İki ya da daha fazla nesne seçince sağ panelde simgeli sekme: son seçilene, seçime, sayfaya ya da sayfa ortasına hizala; kenara, ortaya, boşluğa göre dağıt; seçimin içinde, sayfa boyunca ya da sabit mm aralıkla.
+- **Efektler (ekrandan fareyle):** Alttaki Efektler menüsünden bir efekt seç, nesnenin üstünde sürükle; tutamaçlarla ayarla, sağ panelden ince ayar yap.
+  - **Gölge:** ortadan sürükle düz gölge, alt kenardan sürükle perspektif gölge; çizgideki elmasla koyuluk, panelden yumuşaklık ve renk.
+  - **İç gölge, blok gölge** (düz vektör, lazer ve UV baskıya uygun), **kontür** (dışa / içe, sivri, yuvarlak ya da kesik köşe, adım sayısı).
+  - **Zarf:** hazır biçimler (kavis, üstten / alttan kavis, dalga, bayrak, şişir, daralt, perspektif) önizleme simgeleriyle; düz, tek kavis, çift kavis ve serbest kiplerde köşe ve kenar tutamaçları.
+  - **Bozma:** itme / çekme, fermuar, girdap; merkez taşınabilir.
+  - **Şeffaflık:** genel ya da sürükleyerek geçişli. **Geçiş:** bir nesneden öbürüne sürükle.
+  - Efektler canlıdır: kaldırınca şekil eski hâline döner. "Efektleri kalıcı yap" ile ayrı nesnelere dönüşür. Dışa aktarmada ve 3B'ye gönderirken vektör efektler (blok gölge, kontür) şekil olarak yazılır.
+- **Diğer:** PowerClip, yazıyı yola oturtma, köşelere pah ve yuvarlatma, desen dolgu, resmi vektöre çevirme.
 - **Yazı:**
   - Ekranda doğrudan yazarsın.
   - Harf harf renk, yazı tipi ve boy verirsin.
@@ -150,6 +162,7 @@ npm run tauri dev        # geliştirme
 npm test                 # testler
 npm run tauri build      # kurulum dosyası
 npx tsx tools/brand.ts   # kurumsal kimlik kılavuzu, logolar, uygulama içi logo ve kurulum ikonu (.svg)
+npx tsx tools/icons.ts   # şekil ve parça menüsündeki perspektif görseller (src/app/shapeIcons, saydam PNG)
 ```
 
 - `src/core`: geometri çekirdeği (manifold-3d). Arayüzden bağımsızdır; belge bir tariftir (JSON).

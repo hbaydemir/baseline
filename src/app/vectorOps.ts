@@ -65,7 +65,7 @@ export function layoutText(k: GlyphSource, t: V.TextMeta): TextLayout & { subFil
     const w = width(ln.a, ln.b), al = t.align ?? 'left', spaces = chars.slice(ln.a, ln.b).filter(c => c === ' ').length;
     const extra = boxW && al === 'justify' && ln.soft && spaces ? (boxW - w) / spaces : 0;
     let x = boxW ? (al === 'center' ? (boxW - w) / 2 : al === 'right' ? boxW - w : 0) : (al === 'center' ? -w / 2 : al === 'right' ? -w : 0);
-    for (let q = ln.a; q < ln.b; q++) { carets[q] = { x, y, a: 0 }; placed.push({ i: q, x, y, adv: G[q].adv }); x += G[q].adv + ls + (chars[q] === ' ' ? extra : 0); }
+    for (let q = ln.a; q < ln.b; q++) { carets[q] = { x, y, a: 0 }; placed.push({ i: q, x: x + (cs[q]?.dx ?? 0), y: y + (cs[q]?.dy ?? 0), adv: G[q].adv }); x += G[q].adv + ls + (chars[q] === ' ' ? extra : 0); }
     if (ln.b <= chars.length) carets[ln.b] = { x: ln.b > ln.a ? x - ls : x, y, a: 0 };
   });
   for (let q = 0; q <= chars.length; q++) carets[q] ??= { x: 0, y: 0, a: 0 };
@@ -196,6 +196,28 @@ export function simplifyOverlaps(w: W, items: V.Item[]): V.Item[] {
     const res = { ...it, text: undefined, subs: fromCS(r, 0.002), even: false };
     css.forEach(c => c.delete()); u.delete(); cs.delete(); r.delete(); return res;
   }).filter(it => it.subs.length);
+}
+/** Corel şekillendirme işlemleri. items alttan üste sıralı; target: hedef (son seçilen). */
+export type ShapeOp = 'weld' | 'trim' | 'intersect' | 'frontMinusBack' | 'backMinusFront' | 'boundary';
+export interface ShapeKeep { src: boolean; tgt: boolean }
+/** Corel'deki varsayılan "orijinalleri bırak" seçenekleri. */
+export const SHAPE_KEEP: Record<ShapeOp, ShapeKeep> = { weld: { src: false, tgt: false }, trim: { src: true, tgt: false }, intersect: { src: true, tgt: true }, frontMinusBack: { src: false, tgt: false }, backMinusFront: { src: false, tgt: false }, boundary: { src: true, tgt: true } };
+/** Sonuç: silinecek kimlikler ve hedefin yerine (z sırası) konacak yeni nesneler. */
+export function shapeOp(w: W, items: V.Item[], targetId: number, op: ShapeOp, keep: ShapeKeep = SHAPE_KEEP[op]): { remove: number[]; add: V.Item[]; at: number } {
+  const solid = items.filter(i => !i.img && i.subs.some(s => s.closed)); if (solid.length < 2) throw new Error('En az iki kapalı şekil seç');
+  const tgt = solid.find(i => i.id === targetId) ?? solid[solid.length - 1], src = solid.filter(i => i !== tgt);
+  const cs = new Map(solid.map(i => [i.id, toCS(w, i)])), un = (l: V.Item[]) => w.CrossSection.union(l.map(i => cs.get(i.id)!));
+  const mk = (r: CrossSection, from: V.Item, name: string): V.Item | null => { const out = empty(r) ? null : { ...from, id: V.newId(), text: undefined, subs: fromCS(r, 0.002), even: false, name, fx: undefined, group: undefined }; r.delete(); return out; };
+  let res: (V.Item | null)[] = [], remove: number[] = [], anchor = tgt;
+  try {
+    if (op === 'weld') { res = [mk(un(solid), tgt, 'Kaynaşık')]; remove = [...(keep.src ? [] : src.map(i => i.id)), ...(keep.tgt ? [] : [tgt.id])]; }
+    else if (op === 'trim') { const u = un(src); res = [mk(cs.get(tgt.id)!.subtract(u), tgt, tgt.name ?? 'Kırpılmış')]; u.delete(); remove = [...(keep.src ? [] : src.map(i => i.id)), tgt.id]; if (keep.tgt) res.unshift({ ...tgt, id: V.newId() }); }
+    else if (op === 'intersect') { res = src.map(sI => mk(cs.get(sI.id)!.intersect(cs.get(tgt.id)!), tgt, 'Kesişim')); remove = [...(keep.src ? [] : src.map(i => i.id)), ...(keep.tgt ? [] : [tgt.id])]; }
+    else if (op === 'frontMinusBack' || op === 'backMinusFront') { const front = op === 'frontMinusBack', keepI = front ? solid[solid.length - 1] : solid[0], rest = solid.filter(i => i !== keepI), u = un(rest); anchor = keepI; res = [mk(cs.get(keepI.id)!.subtract(u), keepI, keepI.name ?? 'Kırpılmış')]; u.delete(); remove = solid.map(i => i.id); }
+    else { const u = un(solid), b = mk(u, tgt, 'Sınır'); res = b ? [{ ...b, fill: null, stroke: tgt.stroke ?? '#000000', sw: tgt.stroke ? tgt.sw : 0.3, subFill: undefined, grad: undefined, pat: undefined }] : []; anchor = solid[solid.length - 1]; }
+  } finally { cs.forEach(c => c.delete()); }
+  const add = res.filter((x): x is V.Item => !!x);
+  return { remove, add, at: items.indexOf(anchor) };
 }
 /** Birleştir (Ctrl+L): tek nesne, iç içe yollar delik. */
 export const combine = (items: V.Item[]): V.Item => ({ ...items[0], id: V.newId(), text: undefined, even: true, subs: items.flatMap(i => i.subs), name: 'Birleşik' });

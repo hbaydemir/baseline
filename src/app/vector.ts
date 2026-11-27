@@ -19,9 +19,11 @@ export interface TextMeta {
   path?: { pts: V[]; offset: number; flip?: boolean };
 }
 export type ArrowKind = 'tri' | 'open' | 'dot' | 'square' | 'bar';
-export interface CharStyle { fill?: string; font?: string; size?: number }
+/** Harf stili; dx / dy: şekil aracıyla elle kaydırılan harfin kayması (mm, yazının kendi ekseninde). */
+export interface CharStyle { fill?: string; font?: string; size?: number; dx?: number; dy?: number }
 export interface Grad { type: 'linear' | 'radial' | 'conic' | 'square'; angle: number; stops: { o: number; c: string }[] }
-export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number }
+/** Gölge; persp: alt kenardan yere yatan (perspektif) gölge. */
+export interface Shadow { dx: number; dy: number; blur: number; color: string; opacity: number; persp?: boolean }
 export interface Item {
   id: number; subs: Sub[]; fill: string | null; stroke: string | null; sw: number; even: boolean; text?: TextMeta;
   name?: string; hidden?: boolean; locked?: boolean; group?: number;
@@ -41,7 +43,20 @@ export interface Item {
   layer?: number;
   /** Açık çizgilerin uçlarında ok (başlangıç / bitiş) ve boyu (mm). */
   arrows?: { s?: ArrowKind; e?: ArrowKind; size?: number };
+  /** Canlı efektler: asıl yollar (subs) değişmez, efekt kaldırılınca şekil geri gelir. */
+  fx?: Fx;
 }
+export interface ContourFx { dist: number; steps: number; dir: 'out' | 'in'; join: 'Miter' | 'Round' | 'Square'; color: string; filled: boolean }
+type Cubic = [V, V, V, V];
+/** Zarf: kaynak yollar, çerçeve (sol üst, sağ üst, sol alt), kip ve dört kenar eğrisi (üst, sağ, alt, sol). */
+export interface EnvFx { src: Sub[]; frame: [V, V, V]; mode: 'line' | 'arc' | 'double' | 'free'; e: [Cubic, Cubic, Cubic, Cubic] }
+/** Bozma: itme / çekme (amt −1…1), fermuar (amt: genlik mm, freq: diş sayısı), girdap (amt: derece); c: merkez. */
+export interface DistortFx { src: Sub[]; kind: 'push' | 'zipper' | 'twist'; amt: number; freq: number; c: V }
+export interface BlockFx { dx: number; dy: number; color: string; noHoles?: boolean }
+export interface InnerFx { dx: number; dy: number; size: number; color: string; opacity: number }
+/** Geçişli şeffaflık: a noktasında from, b noktasında to (0 opak … 1 tam saydam). */
+export interface TranspFx { a: V; b: V; from: number; to: number }
+export interface Fx { contour?: ContourFx; env?: EnvFx; distort?: DistortFx; block?: BlockFx; inner?: InnerFx; transp?: TranspFx }
 /** Gradientin t (0–1) noktasındaki rengi (ekran rengi). */
 export function gradAt(g: Grad, t: number): string {
   const st = [...g.stops].sort((a, b) => a.o - b.o); if (!st.length) return '#000000';
@@ -121,6 +136,25 @@ export function flattenSub(s: Sub, steps = 16): V[] {
   if (!s.closed && n) out.push([s.pts[n - 1].x, s.pts[n - 1].y]);
   return out;
 }
+/** Yolu f ile büker: düz kenarlar da step aralıkla bölünür (yoksa yalnız köşeler oynar), gerçek köşeler sivri kalır. */
+export function warpSub(s: Sub, f: (x: number, y: number, t?: number) => V, step: number): Sub {
+  const n = s.pts.length, out: { p: V; corner: boolean }[] = [];
+  if (!n) return { pts: [], closed: s.closed };
+  const sharp = (i: number) => { const q = s.pts[i]; return (!s.closed && (i === 0 || i === n - 1)) || q.ix === undefined || q.ox === undefined; };
+  for (let i = 0; i < (s.closed ? n : n - 1); i++) {
+    const a = s.pts[i], b = s.pts[(i + 1) % n], p = segPts(a, b), L = Math.hypot(b.x - a.x, b.y - a.y), k = Math.max(curved(a, b) ? 12 : 1, Math.min(200, Math.ceil(L / step)));
+    for (let q = 0; q < k; q++) { const [x, y] = bez(p, q / k); out.push({ p: f(x, y, q / k), corner: q === 0 && sharp(i) }); }
+  }
+  if (!s.closed) { const l = s.pts[n - 1]; out.push({ p: f(l.x, l.y, 0), corner: true }); }
+  const m = out.length, pts: Pt[] = out.map(({ p: [x, y] }) => ({ x, y }));
+  pts.forEach((p, i) => { // Catmull-Rom; köşede tutamaç komşuya doğru (düz çıkış)
+    const hasA = s.closed || i > 0, hasB = s.closed || i < m - 1, A = pts[(i + m - 1) % m], B = pts[(i + 1) % m];
+    if (out[i].corner) { if (hasA) { p.ix = p.x + (A.x - p.x) / 3; p.iy = p.y + (A.y - p.y) / 3; } if (hasB) { p.ox = p.x + (B.x - p.x) / 3; p.oy = p.y + (B.y - p.y) / 3; } return; }
+    const tx = (B.x - A.x) / 6, ty = (B.y - A.y) / 6;
+    if (hasA) { p.ix = p.x - tx; p.iy = p.y - ty; } if (hasB) { p.ox = p.x + tx; p.oy = p.y + ty; }
+  });
+  return { pts, closed: s.closed };
+}
 export function bounds(items: Item[]) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const it of items) { const w = it.stroke ? it.sw / 2 : 0; for (const s of it.subs) for (const [x, y] of flattenSub(s, 8)) { x0 = Math.min(x0, x - w); y0 = Math.min(y0, y - w); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + w); } }
@@ -147,10 +181,20 @@ export function joinOutline(d: string): string {
   }
   return out.join('');
 }
+const mapSubs = (subs: Sub[], f: (x: number, y: number) => V): Sub[] => subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) }));
+/** Efektlerin taşıdığı noktalar (zarf kaynağı ve kenarları, bozma merkezi, şeffaflık uçları) şekille birlikte taşınır. */
+function mapFx(fx: Fx | undefined, f: (x: number, y: number) => V): Fx | undefined {
+  if (!fx) return fx;
+  const out = { ...fx }, g = (p: V) => f(p[0], p[1]);
+  if (fx.env) out.env = { ...fx.env, src: mapSubs(fx.env.src, f), frame: fx.env.frame.map(g) as [V, V, V], e: fx.env.e.map(c => c.map(g)) as EnvFx['e'] };
+  if (fx.distort) out.distort = { ...fx.distort, src: mapSubs(fx.distort.src, f), c: g(fx.distort.c) };
+  if (fx.transp) out.transp = { ...fx.transp, a: g(fx.transp.a), b: g(fx.transp.b) };
+  return out;
+}
 export function mapItem(it: Item, f: (x: number, y: number) => V, swK = 1): Item {
   const t = it.text && (() => { const [x, y] = f(it.text!.x, it.text!.y); return { ...it.text!, x, y, size: it.text!.size * swK, ls: (it.text!.ls ?? 0) * swK }; })();
   if (t?.path) t.path = { ...t.path, pts: t.path.pts.map(([x, y]) => f(x, y)) };
-  return { ...it, ...(t ? { text: t } : {}), sw: it.fixedStroke ? it.sw : it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
+  return { ...it, ...(t ? { text: t } : {}), ...(it.fx ? { fx: mapFx(it.fx, f) } : {}), sw: it.fixedStroke ? it.sw : it.sw * swK, subs: it.subs.map(s => ({ closed: s.closed, pts: s.pts.map(p => { const [x, y] = f(p.x, p.y), o: Pt = { x, y }; if (p.ix !== undefined) [o.ix, o.iy] = f(p.ix, p.iy!); if (p.ox !== undefined) [o.ox, o.oy] = f(p.ox, p.oy!); return o; }) })) };
 }
 /** Bezier'i t'de ikiye böler. */
 function split(p: V[], t: number): [V[], V[]] {

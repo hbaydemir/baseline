@@ -1,5 +1,6 @@
 // Vektör dışa / içe aktarma: SVG (birebir mm), PDF (artboard başına sayfa ya da tek sayfa), DXF; PDF / AI / DXF içe aktarma.
 import * as V from './vector';
+import { shadowItem } from './vectorFx';
 import { css, isCmyk, parseCmyk, rgbOf, hexOf, type Mode } from './color';
 
 type P = V.V;
@@ -35,7 +36,9 @@ const gradDef = (id: string, g: V.Grad) => {
 export function itemSvg(it: V.Item, c: SvgCtx): string {
   const wrap: string[] = [];
   if (c.free && it.opacity !== undefined && it.opacity < 1) wrap.push(`opacity="${r4(it.opacity)}"`);
-  if (c.free && it.shadow) { const f = `sh${it.id}`, s = it.shadow; c.defs.push(`<filter id="${f}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="${r4(s.dx)}" dy="${r4(s.dy)}" stdDeviation="${r4(s.blur / 2)}" flood-color="${css(s.color)}" flood-opacity="${r4(s.opacity)}"/></filter>`); wrap.push(`filter="url(#${f})"`); }
+  let pre = '';
+  if (c.free && it.shadow) { const s = it.shadow, f = `sh${it.id}`; if (s.blur > 0) c.defs.push(`<filter id="${f}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${r4(s.blur / 2)}"/></filter>`); pre = `<path d="${V.itemD(shadowItem(it, s))}" fill="${css(s.color)}"${it.even ? ' fill-rule="evenodd"' : ''} opacity="${r4(s.opacity)}"${s.blur > 0 ? ` filter="url(#${f})"` : ''}/>`; }
+  if (c.free && it.fx?.transp) { const t = it.fx.transp, g = `tg${it.id}`, m = `tm${it.id}`; c.defs.push(`<linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${r4(t.a[0])}" y1="${r4(t.a[1])}" x2="${r4(t.b[0])}" y2="${r4(t.b[1])}"><stop offset="0" stop-color="#fff" stop-opacity="${r4(1 - t.from)}"/><stop offset="1" stop-color="#fff" stop-opacity="${r4(1 - t.to)}"/></linearGradient><mask id="${m}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#${g})"/></mask>`); }
   let body = '';
   if (it.img) { const src = c.res.assets?.[it.img.key]; if (!src) return ''; body = `<image href="${src}" x="0" y="0" width="1" height="1" preserveAspectRatio="none" transform="matrix(${imgMatrix(it).map(r4).join(' ')})"/>`; }
   else {
@@ -49,7 +52,9 @@ export function itemSvg(it: V.Item, c: SvgCtx): string {
     if (body) { /* bantlar yazıldı */ } else if (groups.length === 1) body = `<path d="${V.itemD(it)}" fill="${fillRef ?? css(groups[0].fill)}"${it.even ? ' fill-rule="evenodd"' : ''}${st}/>`;
     else body = groups.map(g => `<path d="${g.subs.map(V.subD).join('')}" fill="${css(g.fill)}"${it.even ? ' fill-rule="evenodd"' : ''}/>`).join('') + (st ? `<path d="${V.itemD(it)}" fill="none"${st}/>` : '');
   }
-  let el = wrap.length || it.img ? `<g ${wrap.join(' ')}>${body}</g>` : body;
+  if (c.free && it.fx?.inner && !it.img) { const q = it.fx.inner, cp = `ic${it.id}`, bf = `ib${it.id}`; c.defs.push(`<clipPath id="${cp}"><path d="${V.itemD(it)}"${it.even ? ' clip-rule="evenodd"' : ''}/></clipPath><filter id="${bf}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${r4(q.size / 2)}"/></filter>`); body += `<g clip-path="url(#${cp})"><path d="M-100000 -100000H100000V100000H-100000Z${V.itemD(it)}" fill-rule="evenodd" transform="translate(${r4(q.dx)} ${r4(q.dy)})" fill="${css(q.color)}" opacity="${r4(q.opacity)}" filter="url(#${bf})"/></g>`; }
+  if (c.free && it.fx?.transp) body = `<g mask="url(#tm${it.id})">${body}</g>`;
+  let el = pre || wrap.length || it.img ? `<g ${wrap.join(' ')}>${pre}${body}</g>` : body;
   if (it.clip !== undefined) { const box = c.byId.get(it.clip); if (!box) return ''; const id = `cl${it.clip}`; if (!c.defs.some(d => d.includes(`id="${id}"`))) c.defs.push(`<clipPath id="${id}"><path d="${V.itemD(box)}"${box.even ? ' clip-rule="evenodd"' : ''}/></clipPath>`); el = `<g clip-path="url(#${id})">${el}</g>`; }
   return el;
 }
@@ -145,7 +150,7 @@ export async function exportPdf(items: V.Item[], pages: Box[], res: Res = {}): P
     const o: string[] = ['q'];
     if (it.clip !== undefined) { const box = byId.get(it.clip); if (!box) return ''; o.push(subsOps(box.subs), box.even ? 'W* n' : 'W n'); }
     if (it.img) { const im = imgs.get(it.img.key); if (!im) return ''; const [a, b, c, d, e, f] = imgMatrix(it); if (it.opacity !== undefined && it.opacity < 1) o.push(gsOf(it.opacity)); o.push(`${n3(a)} ${n3(b)} ${n3(-c)} ${n3(-d)} ${n3(e + c)} ${n3(f + d)} cm`, `/${im.split(':')[0]} Do`, 'Q'); return o.join('\n'); }
-    if (it.shadow && it.subs.length) { const s = it.shadow; o.push('q', gsOf(s.opacity * (it.opacity ?? 1)), colorOp(s.color, false), colorOp(s.color, true), `${n3(it.sw)} w`, subsOps(it.subs, s.dx, s.dy), it.fill ? (it.even ? 'f*' : 'f') : 'S', 'Q'); }
+    if (it.shadow && it.subs.length) { const s = it.shadow; o.push('q', gsOf(s.opacity * (it.opacity ?? 1)), colorOp(s.color, false), colorOp(s.color, true), `${n3(it.sw)} w`, subsOps(shadowItem(it, s).subs, 0, 0), it.fill ? (it.even ? 'f*' : 'f') : 'S', 'Q'); }
     if (it.opacity !== undefined && it.opacity < 1) o.push(gsOf(it.opacity));
     const fr = it.even ? '*' : '';
     if (it.fill) {

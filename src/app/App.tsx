@@ -27,6 +27,8 @@ const ICONS: Record<string, ReactNode> = {
   slice: <PieChart />, polygon: <Hexagon />, icosa: <Pentagon />, star: <Star />, star3d: <Sparkle />, heart: <Heart />, dice: <Dices />, diamond: <Gem />, paraboloid: <Diamond />, text: <Type />,
   gear: <Cog />, gearPair: <LoaderPinwheel />, hinge: <DoorOpen />, rail: <Columns2 />, boxLid: <Package />, bolt: <Wrench />, nut: <Nut />, screwHole: <Drill />, nutPocket: <Hexagon />, insertHole: <Hammer />, tolTest: <TestTube2 />,
 };
+/** Şekil menüsü görselleri (tools/icons.ts üretir): şeklin perspektif görünümü, saydam arka plan. */
+const PICS = Object.fromEntries(Object.entries(import.meta.glob<string>('./shapeIcons/*.png', { eager: true, query: '?url', import: 'default' })).map(([k, v]) => [k.slice(13, -4), v]));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
 const MODEL = /\.(stl|obj|3mf)$/i;
@@ -436,7 +438,7 @@ export function App({ kernel }: { kernel: Kernel }) {
         return <div className="dimstrip">{sel.length > 1 && <span className="ds-n">{sel.length} nesne · toplam</span>}<span><em>En</em> {f(hi[0] - lo[0])}</span><span><em>Boy</em> {f(hi[1] - lo[1])}</span><span><em>Yükseklik</em> {f(hi[2] - lo[2])} mm</span><span className="ds-pos">X {f((lo[0] + hi[0]) / 2)} · Y {f((lo[1] + hi[1]) / 2)}</span></div>; })()}
       <div className="dock" onClick={e => e.stopPropagation()}>
         {pop && <div className="pop" role="dialog">
-          {pop === 'basic' || pop === 'mech' ? <><b>{pop === 'basic' ? 'Şekiller' : 'Mekanik parçalar'}</b><div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === pop).map(([t, s]) => <button key={t} title={s.label} onClick={() => { addShape(t); setPop(null); }}>{ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div></> : null}
+          {pop === 'basic' || pop === 'mech' ? <><b>{pop === 'basic' ? 'Şekiller' : 'Mekanik parçalar'}</b><div className="shapes">{Object.entries(SHAPES).filter(([, s]) => s.cat === pop).map(([t, s]) => <button key={t} title={s.label} onClick={() => { addShape(t); setPop(null); }}>{PICS[t] ? <img className="spic" src={PICS[t]} alt="" draggable={false} /> : ICONS[t] ?? <Box />}<span>{s.label}</span></button>)}</div></> : null}
         </div>}
         <D t="Geri al (Ctrl+Z)" off={!past.current.length} on={() => step(past, future)}><Undo2 /></D>
         <D t="Yinele (Ctrl+Y)" off={!future.current.length} on={() => step(future, past)}><Redo2 /></D>

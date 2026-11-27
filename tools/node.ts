@@ -65,15 +65,16 @@ export async function exportFile(p: string, out: string, printerId?: string): Pr
 }
 
 /** Yapay zekânın sonucu görmesi için küçük yazılım çizici (z-tampon, 2x kenar yumuşatma). */
-export function render(built: Built[], W = 800, H = 600, az = -35, el = 35): Buffer {
-  const S = 2, w = W * S, h = H * S, buf = new Float32Array(w * h).fill(-Infinity), rgb = new Float32Array(w * h * 3);
-  for (let i = 0; i < w * h; i++) rgb.set([242, 243, 245], i * 3);
+/** clear: arka plan saydam (RGBA PNG). */
+export function render(built: Built[], W = 800, H = 600, az = -35, el = 35, clear = false): Buffer {
+  const S = clear ? 4 : 2, w = W * S, h = H * S, buf = new Float32Array(w * h).fill(-Infinity), rgb = new Float32Array(w * h * 3);
+  if (!clear) for (let i = 0; i < w * h; i++) rgb.set([242, 243, 245], i * 3);
   const a = az * Math.PI / 180, e = el * Math.PI / 180, R = [Math.cos(a), Math.sin(a), 0], D = [-Math.sin(a) * Math.cos(e), Math.cos(a) * Math.cos(e), -Math.sin(e)], U = [-Math.sin(a) * Math.sin(e), Math.cos(a) * Math.sin(e), Math.cos(e)];
   const dot = (p: number[], q: number[]) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
   const parts = built.flatMap(b => world(b)).filter(p => !p.hole), pr = parts.map(p => { const o: number[][] = []; for (let i = 0; i < p.positions.length; i += 3) { const v = [p.positions[i], p.positions[i + 1], p.positions[i + 2]]; o.push([dot(v, R), dot(v, U), -dot(v, D)]); } return o; });
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const o of pr) for (const [x, y] of o) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-  const s = Math.min(w / (x1 - x0 || 1), h / (y1 - y0 || 1)) * 0.86, X = (x: number) => (x - (x0 + x1) / 2) * s + w / 2, Y = (y: number) => h / 2 - (y - (y0 + y1) / 2) * s;
+  const s = Math.min(w / (x1 - x0 || 1), h / (y1 - y0 || 1)) * (clear ? 0.94 : 0.86), X = (x: number) => (x - (x0 + x1) / 2) * s + w / 2, Y = (y: number) => h / 2 - (y - (y0 + y1) / 2) * s;
   const light = (() => { const l = [R[0] * -0.45 + U[0] * 0.6 - D[0] * 0.66, R[1] * -0.45 + U[1] * 0.6 - D[1] * 0.66, R[2] * -0.45 + U[2] * 0.6 - D[2] * 0.66], n = Math.hypot(...l); return l.map(v => v / n); })();
   parts.forEach((p, pi) => {
     const rgbOf = (h: string) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), o = pr[pi], P = p.positions;
@@ -91,9 +92,15 @@ export function render(built: Built[], W = 800, H = 600, az = -35, el = 35): Buf
       }
     }
   });
-  const raw = Buffer.alloc((W * 3 + 1) * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) for (let c = 0; c < 3; c++) { let v = 0; for (let q = 0; q < S * S; q++) v += rgb[((y * S + (q >> 1)) * w + x * S + (q & 1)) * 3 + c]; raw[y * (W * 3 + 1) + 1 + x * 3 + c] = Math.min(255, v / (S * S)); }
+  const C = clear ? 4 : 3, raw = Buffer.alloc((W * C + 1) * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let n = 0; const v = [0, 0, 0];
+    for (let q = 0; q < S * S; q++) { const i = (y * S + Math.floor(q / S)) * w + x * S + q % S; if (clear && buf[i] === -Infinity) continue; n++; for (let c = 0; c < 3; c++) v[c] += rgb[i * 3 + c]; }
+    const o = y * (W * C + 1) + 1 + x * C;
+    for (let c = 0; c < 3; c++) raw[o + c] = Math.min(255, n ? v[c] / (clear ? n : S * S) : 0);
+    if (clear) raw[o + 3] = Math.round(255 * n / (S * S));
+  }
   const chunk = (t: string, d: Buffer) => { const b = Buffer.concat([Buffer.from(t), d]), l = Buffer.alloc(4), c = Buffer.alloc(4); l.writeUInt32BE(d.length); c.writeUInt32BE(crc32(b)); return Buffer.concat([l, b, c]); };
-  const ih = Buffer.alloc(13); ih.writeUInt32BE(W, 0); ih.writeUInt32BE(H, 4); ih.set([8, 2], 8);
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(W, 0); ih.writeUInt32BE(H, 4); ih.set([8, clear ? 6 : 2], 8);
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
